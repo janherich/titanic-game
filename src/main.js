@@ -29,10 +29,13 @@ window.addEventListener('keyup', (e) => {
 // Game state
 let gameRunning = true;
 let gameOver = false;
+let gameWon = false;
 let animationTime = 0;
 let totalDistance = 0; // Total distance sailed in world units
 let lastShipX = 0;
 let lastShipY = 0;
+let gameStartTime = 0; // Time when game started (for win screen)
+let winTime = 0; // Time when goal was reached (stops the timer)
 
 // Coal system
 const coalConfig = {
@@ -75,10 +78,37 @@ const icebergsConfig = {
   strokeColor: '#b8d4e0' // Slightly darker outline
 };
 
-// Camera/World state
+// World boundaries
+const worldConfig = {
+  width: 10000, // World width in pixels
+  height: 10000, // World height in pixels
+  iceBarrierWidth: 100 // Width of ice barrier at edges
+};
+
+// Goal configuration
+const goalConfig = {
+  radius: 250, // Radius of goal area (bigger island)
+  edgeOffset: 300 // Distance from edge to place goal
+};
+
+// Goal state
+let goal = {
+  x: 0,
+  y: 0,
+  generated: false
+};
+
+// Start port state
+let startPort = {
+  x: 0,
+  y: 0,
+  generated: false
+};
+
+// Camera/World state (initialized near start port)
 const camera = {
-  x: 0, // World X position (ship's world position)
-  y: 0  // World Y position (ship's world position)
+  x: worldConfig.width / 2, // Will be set near start port
+  y: worldConfig.height / 2  // Will be set near start port
 };
 
 // Icebergs storage (generated on demand)
@@ -428,11 +458,19 @@ function updateShip(deltaTime) {
   // Move camera (world) forward/backward based on current rotation
   const moveX = Math.cos(ship.rotation) * ship.speed;
   const moveY = Math.sin(ship.rotation) * ship.speed;
+  
+  // Store old position for distance tracking
+  const oldCameraX = camera.x;
+  const oldCameraY = camera.y;
+  
+  // Move freely (no boundaries - open world)
   camera.x += moveX;
   camera.y += moveY;
   
   // Track distance sailed
-  const distanceThisFrame = Math.sqrt(moveX * moveX + moveY * moveY);
+  const actualMoveX = camera.x - oldCameraX;
+  const actualMoveY = camera.y - oldCameraY;
+  const distanceThisFrame = Math.sqrt(actualMoveX * actualMoveX + actualMoveY * actualMoveY);
   totalDistance += distanceThisFrame;
   
   // Deplete coal only when moving, proportional to speed
@@ -597,9 +635,349 @@ function drawIcebergs() {
   }
 }
 
+// Generate start port on edge of world
+function generateStartPort() {
+  const offset = goalConfig.edgeOffset;
+  
+  // Randomly choose which edge (0=top, 1=right, 2=bottom, 3=left)
+  const edge = Math.floor(Math.random() * 4);
+  
+  switch (edge) {
+    case 0: // Top edge
+      startPort.x = offset + Math.random() * (worldConfig.width - offset * 2);
+      startPort.y = offset;
+      break;
+    case 1: // Right edge
+      startPort.x = worldConfig.width - offset;
+      startPort.y = offset + Math.random() * (worldConfig.height - offset * 2);
+      break;
+    case 2: // Bottom edge
+      startPort.x = offset + Math.random() * (worldConfig.width - offset * 2);
+      startPort.y = worldConfig.height - offset;
+      break;
+    case 3: // Left edge
+      startPort.x = offset;
+      startPort.y = offset + Math.random() * (worldConfig.height - offset * 2);
+      break;
+  }
+  
+  startPort.generated = true;
+  
+  // Position ship near start port (slightly away from the port)
+  const shipOffset = goalConfig.radius + 50;
+  camera.x = startPort.x + (Math.random() - 0.5) * shipOffset * 0.5;
+  camera.y = startPort.y + (Math.random() - 0.5) * shipOffset * 0.5;
+}
+
+// Generate goal on edge of world (different edge from start port)
+function generateGoal() {
+  const offset = goalConfig.edgeOffset;
+  
+  // Get start port edge
+  let startPortEdge = -1;
+  if (startPort.generated) {
+    if (startPort.y <= offset + 10) startPortEdge = 0; // Top
+    else if (startPort.x >= worldConfig.width - offset - 10) startPortEdge = 1; // Right
+    else if (startPort.y >= worldConfig.height - offset - 10) startPortEdge = 2; // Bottom
+    else if (startPort.x <= offset + 10) startPortEdge = 3; // Left
+  }
+  
+  // Choose a different edge for goal
+  let edge;
+  do {
+    edge = Math.floor(Math.random() * 4);
+  } while (edge === startPortEdge && startPort.generated);
+  
+  switch (edge) {
+    case 0: // Top edge
+      goal.x = offset + Math.random() * (worldConfig.width - offset * 2);
+      goal.y = offset;
+      break;
+    case 1: // Right edge
+      goal.x = worldConfig.width - offset;
+      goal.y = offset + Math.random() * (worldConfig.height - offset * 2);
+      break;
+    case 2: // Bottom edge
+      goal.x = offset + Math.random() * (worldConfig.width - offset * 2);
+      goal.y = worldConfig.height - offset;
+      break;
+    case 3: // Left edge
+      goal.x = offset;
+      goal.y = offset + Math.random() * (worldConfig.height - offset * 2);
+      break;
+  }
+  
+  goal.generated = true;
+}
+
+// Check if ship reached the goal
+function checkGoalReached() {
+  if (gameOver || gameWon || !goal.generated) return;
+  
+  // Ship position in world space (camera position)
+  const shipWorldX = camera.x;
+  const shipWorldY = camera.y;
+  
+  // Calculate distance to goal center
+  const dx = shipWorldX - goal.x;
+  const dy = shipWorldY - goal.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  
+  // Check if ship is within goal radius
+  if (distance < goalConfig.radius) {
+    gameWon = true;
+    gameRunning = false;
+    winTime = performance.now(); // Store the win time
+  }
+}
+
+// Draw start port (island with port)
+function drawStartPort() {
+  if (!startPort.generated) return;
+  
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  
+  // Convert start port world position to screen position
+  const portScreenX = startPort.x - camera.x + screenCenterX;
+  const portScreenY = startPort.y - camera.y + screenCenterY;
+  
+  // Only draw if on screen (with some margin)
+  const margin = goalConfig.radius + 50;
+  if (portScreenX < -margin || portScreenX > canvas.width + margin ||
+      portScreenY < -margin || portScreenY > canvas.height + margin) {
+    return;
+  }
+  
+  // Draw the same island design as goal (reuse the drawing code)
+  drawIsland(portScreenX, portScreenY, '#6B8E23'); // Use olive green color to differentiate
+}
+
+// Draw island (reusable function for both start port and goal)
+function drawIsland(screenX, screenY, accentColor = '#4caf50') {
+  ctx.save();
+  ctx.translate(screenX, screenY);
+  
+  const islandSize = goalConfig.radius;
+  
+  // Draw island (irregular oval shape - bigger)
+  ctx.fillStyle = '#8B7355'; // Sandy brown
+  ctx.beginPath();
+  ctx.ellipse(0, 0, islandSize * 0.9, islandSize * 0.7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Island outline
+  ctx.strokeStyle = '#6B5D45';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  
+  // Draw beach/sand area
+  ctx.fillStyle = '#D2B48C';
+  ctx.beginPath();
+  ctx.ellipse(0, islandSize * 0.5, islandSize * 0.7, islandSize * 0.15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw trees/vegetation on island (more detailed)
+  ctx.fillStyle = '#2d5016'; // Dark green for tree trunks
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI * 2) / 8;
+    const dist = islandSize * (0.3 + (i % 3) * 0.15);
+    const x = Math.cos(angle) * dist;
+    const y = Math.sin(angle) * dist;
+    
+    // Tree trunk
+    ctx.fillRect(x - 3, y, 6, 12);
+    
+    // Tree foliage
+    ctx.fillStyle = '#3a7c42';
+    ctx.beginPath();
+    ctx.arc(x, y - 5, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2d5016'; // Reset for next trunk
+  }
+  
+  // Draw dock/pier (extending from island - more detailed)
+  ctx.fillStyle = '#654321'; // Brown wood
+  const dockWidth = islandSize * 0.7;
+  const dockHeight = islandSize * 0.25;
+  ctx.fillRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
+  ctx.strokeStyle = '#543210';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
+  
+  // Draw dock planks (wooden planks detail)
+  ctx.strokeStyle = '#543210';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const x = -dockWidth / 2 + (i * dockWidth / 6);
+    ctx.beginPath();
+    ctx.moveTo(x, islandSize * 0.45);
+    ctx.lineTo(x, islandSize * 0.45 + dockHeight);
+    ctx.stroke();
+  }
+  
+  // Draw dock posts (more posts)
+  ctx.fillStyle = '#4a3428';
+  for (let i = -2; i <= 2; i++) {
+    ctx.fillRect(-dockWidth / 2 + (i + 2) * (dockWidth / 5) - 2, islandSize * 0.45, 4, dockHeight);
+  }
+  
+  // Draw small boats at dock
+  // Boat 1
+  ctx.fillStyle = '#8B6F47';
+  ctx.fillRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
+  ctx.strokeStyle = '#654321';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
+  // Boat mast
+  ctx.fillStyle = '#654321';
+  ctx.fillRect(-islandSize * 0.175, islandSize * 0.5, 2, -islandSize * 0.1);
+  
+  // Boat 2
+  ctx.fillStyle = '#8B6F47';
+  ctx.fillRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
+  ctx.strokeStyle = '#654321';
+  ctx.strokeRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
+  
+  // Draw port buildings (more buildings)
+  // Building 1 (left - warehouse)
+  ctx.fillStyle = '#d4a574'; // Light brown/tan
+  ctx.fillRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
+  ctx.strokeStyle = '#8B6F47';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
+  
+  // Building 1 roof
+  ctx.fillStyle = '#8B4513';
+  ctx.beginPath();
+  ctx.moveTo(-islandSize * 0.6, -islandSize * 0.2);
+  ctx.lineTo(-islandSize * 0.45, -islandSize * 0.35);
+  ctx.lineTo(-islandSize * 0.3, -islandSize * 0.2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Building 1 windows
+  ctx.fillStyle = '#4a90e2';
+  ctx.fillRect(-islandSize * 0.55, -islandSize * 0.1, 8, 10);
+  ctx.fillRect(-islandSize * 0.45, -islandSize * 0.1, 8, 10);
+  ctx.fillRect(-islandSize * 0.35, -islandSize * 0.1, 8, 10);
+  
+  // Building 2 (center - office)
+  ctx.fillStyle = '#e8d5b7';
+  ctx.fillRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
+  ctx.strokeStyle = '#8B6F47';
+  ctx.strokeRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
+  
+  // Building 2 roof
+  ctx.fillStyle = '#8B4513';
+  ctx.beginPath();
+  ctx.moveTo(-islandSize * 0.15, -islandSize * 0.15);
+  ctx.lineTo(0, -islandSize * 0.3);
+  ctx.lineTo(islandSize * 0.15, -islandSize * 0.15);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Building 2 door
+  ctx.fillStyle = '#654321';
+  ctx.fillRect(-islandSize * 0.05, 0, islandSize * 0.1, islandSize * 0.15);
+  
+  // Building 2 windows
+  ctx.fillStyle = '#4a90e2';
+  ctx.fillRect(-islandSize * 0.1, -islandSize * 0.05, 8, 8);
+  ctx.fillRect(islandSize * 0.02, -islandSize * 0.05, 8, 8);
+  
+  // Building 3 (right - storage)
+  ctx.fillStyle = '#c9a876';
+  ctx.fillRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
+  ctx.strokeStyle = '#8B6F47';
+  ctx.strokeRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
+  
+  // Building 3 roof
+  ctx.fillStyle = '#8B4513';
+  ctx.beginPath();
+  ctx.moveTo(islandSize * 0.3, -islandSize * 0.25);
+  ctx.lineTo(islandSize * 0.44, -islandSize * 0.38);
+  ctx.lineTo(islandSize * 0.58, -islandSize * 0.25);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Draw lighthouse (taller and more detailed)
+  const lighthouseX = 0;
+  const lighthouseY = -islandSize * 0.6;
+  
+  // Lighthouse base
+  ctx.fillStyle = '#f5f5f5';
+  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
+  ctx.strokeStyle = '#cccccc';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
+  
+  // Lighthouse stripes (red and white)
+  ctx.fillStyle = '#d32f2f';
+  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.1, islandSize * 0.24, islandSize * 0.08);
+  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.25, islandSize * 0.24, islandSize * 0.08);
+  
+  // Lighthouse top (red dome)
+  ctx.fillStyle = '#d32f2f';
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, islandSize * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Lighthouse light (pulsing)
+  const lightPulse = Math.sin(animationTime * 0.2) * 0.4 + 0.6;
+  ctx.fillStyle = `rgba(255, 255, 200, ${lightPulse})`;
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, islandSize * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw flag on lighthouse
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(lighthouseX + islandSize * 0.12, lighthouseY - islandSize * 0.05, islandSize * 0.08, islandSize * 0.06);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(lighthouseX + islandSize * 0.12, lighthouseY - islandSize * 0.05, islandSize * 0.08, islandSize * 0.06);
+  
+  // Draw crane/loading equipment
+  ctx.strokeStyle = '#654321';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-islandSize * 0.4, islandSize * 0.2);
+  ctx.lineTo(-islandSize * 0.4, islandSize * 0.35);
+  ctx.lineTo(-islandSize * 0.2, islandSize * 0.35);
+  ctx.stroke();
+  
+  // Crane hook
+  ctx.fillStyle = '#333333';
+  ctx.fillRect(-islandSize * 0.22, islandSize * 0.33, 4, 8);
+  
+  ctx.restore();
+}
+
+// Draw goal area (island with port)
+function drawGoal() {
+  if (!goal.generated) return;
+  
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  
+  // Convert goal world position to screen position
+  const goalScreenX = goal.x - camera.x + screenCenterX;
+  const goalScreenY = goal.y - camera.y + screenCenterY;
+  
+  // Only draw if on screen (with some margin)
+  const margin = goalConfig.radius + 50;
+  if (goalScreenX < -margin || goalScreenX > canvas.width + margin ||
+      goalScreenY < -margin || goalScreenY > canvas.height + margin) {
+    return;
+  }
+  
+  // Draw the island using the reusable function
+  drawIsland(goalScreenX, goalScreenY, '#4caf50');
+}
+
 // Check collision between ship and icebergs
 function checkCollisions() {
-  if (gameOver) return;
+  if (gameOver || gameWon) return;
   
   // Ship position in world space (camera position)
   const shipWorldX = camera.x;
@@ -634,6 +1012,70 @@ function checkCollisions() {
       return;
     }
   }
+}
+
+// Draw win screen
+function drawWinScreen() {
+  if (!gameWon) return;
+  
+  // Calculate elapsed time (use winTime if set, otherwise current time)
+  const endTime = winTime > 0 ? winTime : performance.now();
+  const elapsedTime = (endTime - gameStartTime) / 1000; // Convert to seconds
+  const minutes = Math.floor(elapsedTime / 60);
+  const seconds = Math.floor(elapsedTime % 60);
+  const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  
+  // Semi-transparent overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Win text
+  ctx.save();
+  ctx.fillStyle = '#4caf50';
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('YOU WIN!', canvas.width / 2, canvas.height / 2 - 100);
+  
+  // Time text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '24px Arial';
+  ctx.fillText(`Time: ${timeString}`, canvas.width / 2, canvas.height / 2 - 50);
+  
+  // Stats
+  const speedInKnots = Math.abs(ship.speed) * 10;
+  const distanceInNauticalMiles = totalDistance * 0.01;
+  ctx.fillText(`Distance: ${distanceInNauticalMiles.toFixed(2)} nm`, canvas.width / 2, canvas.height / 2 - 20);
+  
+  // Restart button
+  const buttonX = canvas.width / 2;
+  const buttonY = canvas.height / 2 + 60;
+  const buttonWidth = 200;
+  const buttonHeight = 50;
+  
+  // Button background
+  ctx.fillStyle = '#4a90e2';
+  ctx.fillRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight);
+  
+  // Button border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(buttonX - buttonWidth / 2, buttonY - buttonHeight / 2, buttonWidth, buttonHeight);
+  
+  // Button text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '24px Arial';
+  ctx.fillText('Play Again', buttonX, buttonY);
+  
+  ctx.restore();
+  
+  // Store button bounds for click detection
+  gameOverButton = {
+    x: buttonX - buttonWidth / 2,
+    y: buttonY - buttonHeight / 2,
+    width: buttonWidth,
+    height: buttonHeight
+  };
 }
 
 // Draw game over overlay
@@ -695,6 +1137,7 @@ function drawGameOver() {
 // Restart game
 function restartGame() {
   gameOver = false;
+  gameWon = false;
   gameRunning = true;
   
   // Clear all pressed keys to prevent stuck keys from affecting restart
@@ -709,18 +1152,24 @@ function restartGame() {
   ship.acceleration = 0;
   ship.rudderAngle = 0;
   
-  // Reset camera
-  camera.x = 0;
-  camera.y = 0;
+  // Reset start port and goal
+  startPort.generated = false;
+  goal.generated = false;
   
   // Clear icebergs and regenerate
   icebergs.length = 0;
   loadedIcebergChunks.clear();
   
-  // Reset animation
+  // Generate start port (this will also position the camera near the start port) and goal
+  generateStartPort();
+  generateGoal();
+  
+  // Reset animation and timing
   animationTime = 0;
   totalDistance = 0;
   currentCoal = coalConfig.maxCoal;
+  gameStartTime = performance.now();
+  winTime = 0; // Reset win time
   lastTime = performance.now();
   
   // Note: Don't call gameLoop() here - it's already running via requestAnimationFrame
@@ -731,7 +1180,7 @@ let gameOverButton = null;
 
 // Handle mouse clicks for restart button
 canvas.addEventListener('click', (e) => {
-  if (!gameOver || !gameOverButton) return;
+  if ((!gameOver && !gameWon) || !gameOverButton) return;
   
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -747,7 +1196,7 @@ canvas.addEventListener('click', (e) => {
 
 // Draw UI overlay with ship info
 function drawUI() {
-  if (gameOver) return;
+  if (gameOver || gameWon) return;
   
   ctx.save();
   
@@ -824,6 +1273,184 @@ function drawUI() {
   ctx.restore();
 }
 
+// Draw ice barriers at world edges
+function drawIceBarriers() {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  
+  ctx.save();
+  ctx.fillStyle = '#b0d4e8'; // Light blue-white ice color
+  ctx.strokeStyle = '#8bb8d0';
+  ctx.lineWidth = 2;
+  
+  const barrierWidth = worldConfig.iceBarrierWidth;
+  
+  // Top barrier (world Y from 0 to barrierWidth)
+  const topBarrierWorldStart = 0;
+  const topBarrierWorldEnd = barrierWidth;
+  const topBarrierScreenStart = topBarrierWorldStart - camera.y + screenCenterY;
+  const topBarrierScreenEnd = topBarrierWorldEnd - camera.y + screenCenterY;
+  
+  if (topBarrierScreenEnd > 0 && topBarrierScreenStart < canvas.height) {
+    const drawStart = Math.max(0, topBarrierScreenStart);
+    const drawEnd = Math.min(canvas.height, topBarrierScreenEnd);
+    const drawHeight = drawEnd - drawStart;
+    if (drawHeight > 0) {
+      ctx.fillRect(0, drawStart, canvas.width, drawHeight);
+      ctx.strokeRect(0, drawStart, canvas.width, drawHeight);
+    }
+  }
+  
+  // Bottom barrier (world Y from height-barrierWidth to height)
+  const bottomBarrierWorldStart = worldConfig.height - barrierWidth;
+  const bottomBarrierWorldEnd = worldConfig.height;
+  const bottomBarrierScreenStart = bottomBarrierWorldStart - camera.y + screenCenterY;
+  const bottomBarrierScreenEnd = bottomBarrierWorldEnd - camera.y + screenCenterY;
+  
+  if (bottomBarrierScreenEnd > 0 && bottomBarrierScreenStart < canvas.height) {
+    const drawStart = Math.max(0, bottomBarrierScreenStart);
+    const drawEnd = Math.min(canvas.height, bottomBarrierScreenEnd);
+    const drawHeight = drawEnd - drawStart;
+    if (drawHeight > 0) {
+      ctx.fillRect(0, drawStart, canvas.width, drawHeight);
+      ctx.strokeRect(0, drawStart, canvas.width, drawHeight);
+    }
+  }
+  
+  // Left barrier (world X from 0 to barrierWidth)
+  const leftBarrierWorldStart = 0;
+  const leftBarrierWorldEnd = barrierWidth;
+  const leftBarrierScreenStart = leftBarrierWorldStart - camera.x + screenCenterX;
+  const leftBarrierScreenEnd = leftBarrierWorldEnd - camera.x + screenCenterX;
+  
+  if (leftBarrierScreenEnd > 0 && leftBarrierScreenStart < canvas.width) {
+    const drawStart = Math.max(0, leftBarrierScreenStart);
+    const drawEnd = Math.min(canvas.width, leftBarrierScreenEnd);
+    const drawWidth = drawEnd - drawStart;
+    if (drawWidth > 0) {
+      ctx.fillRect(drawStart, 0, drawWidth, canvas.height);
+      ctx.strokeRect(drawStart, 0, drawWidth, canvas.height);
+    }
+  }
+  
+  // Right barrier (world X from width-barrierWidth to width)
+  const rightBarrierWorldStart = worldConfig.width - barrierWidth;
+  const rightBarrierWorldEnd = worldConfig.width;
+  const rightBarrierScreenStart = rightBarrierWorldStart - camera.x + screenCenterX;
+  const rightBarrierScreenEnd = rightBarrierWorldEnd - camera.x + screenCenterX;
+  
+  if (rightBarrierScreenEnd > 0 && rightBarrierScreenStart < canvas.width) {
+    const drawStart = Math.max(0, rightBarrierScreenStart);
+    const drawEnd = Math.min(canvas.width, rightBarrierScreenEnd);
+    const drawWidth = drawEnd - drawStart;
+    if (drawWidth > 0) {
+      ctx.fillRect(drawStart, 0, drawWidth, canvas.height);
+      ctx.strokeRect(drawStart, 0, drawWidth, canvas.height);
+    }
+  }
+  
+  ctx.restore();
+}
+
+// Draw minimap in upper right corner
+function drawMinimap() {
+  if (gameOver) return;
+  
+  ctx.save();
+  
+  const minimapSize = 200;
+  const minimapX = canvas.width - minimapSize - 20;
+  const minimapY = 20;
+  const padding = 10;
+  const mapSize = minimapSize - padding * 2;
+  
+  // Minimap background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(minimapX, minimapY, minimapSize, minimapSize);
+  
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(minimapX, minimapY, minimapSize, minimapSize);
+  
+  // Calculate world to minimap scale
+  const scaleX = mapSize / worldConfig.width;
+  const scaleY = mapSize / worldConfig.height;
+  const scale = Math.min(scaleX, scaleY); // Use smaller scale to fit both dimensions
+  
+  const mapOffsetX = minimapX + padding;
+  const mapOffsetY = minimapY + padding;
+  
+  // Draw world boundaries (optional - can be removed for truly infinite world)
+  ctx.strokeStyle = '#888888';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mapOffsetX, mapOffsetY, worldConfig.width * scale, worldConfig.height * scale);
+  
+  // Draw start port on minimap
+  if (startPort.generated) {
+    const startPortMapX = mapOffsetX + startPort.x * scale;
+    const startPortMapY = mapOffsetY + startPort.y * scale;
+    
+    ctx.fillStyle = '#6B8E23'; // Olive green for start port
+    ctx.beginPath();
+    ctx.arc(startPortMapX, startPortMapY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Start port radius indicator
+    ctx.strokeStyle = '#6B8E23';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(startPortMapX, startPortMapY, goalConfig.radius * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Draw goal on minimap
+  if (goal.generated) {
+    const goalMapX = mapOffsetX + goal.x * scale;
+    const goalMapY = mapOffsetY + goal.y * scale;
+    
+    ctx.fillStyle = '#4caf50'; // Green for goal
+    ctx.beginPath();
+    ctx.arc(goalMapX, goalMapY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Goal radius indicator
+    ctx.strokeStyle = '#4caf50';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(goalMapX, goalMapY, goalConfig.radius * scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  
+  // Draw ship position
+  const shipMapX = mapOffsetX + camera.x * scale;
+  const shipMapY = mapOffsetY + camera.y * scale;
+  
+  ctx.fillStyle = '#ff0000';
+  ctx.beginPath();
+  ctx.arc(shipMapX, shipMapY, 3, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw ship direction indicator
+  ctx.strokeStyle = '#ff0000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(shipMapX, shipMapY);
+  const indicatorLength = 8;
+  ctx.lineTo(
+    shipMapX + Math.cos(ship.rotation) * indicatorLength,
+    shipMapY + Math.sin(ship.rotation) * indicatorLength
+  );
+  ctx.stroke();
+  
+  // Minimap label
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 12px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText('Map', minimapX + 10, minimapY + 10);
+  
+  ctx.restore();
+}
+
 // Draw ship (always at screen center)
 function drawShip() {
   // Ship is always at screen center
@@ -851,7 +1478,7 @@ function drawShip() {
 let lastTime = performance.now();
 
 function gameLoop(currentTime) {
-  if (!gameRunning && !gameOver) return;
+  if (!gameRunning && !gameOver && !gameWon) return;
 
   // Calculate delta time for consistent physics
   const deltaTime = Math.min((currentTime - lastTime) / 16.67, 2); // Cap at 2x normal speed
@@ -861,7 +1488,7 @@ function gameLoop(currentTime) {
   animationTime += 0.5;
 
   // Update ship physics (only if game is running)
-  if (!gameOver) {
+  if (!gameOver && !gameWon) {
     updateShip(deltaTime);
     
     // Ensure icebergs are generated for visible area
@@ -869,6 +1496,9 @@ function gameLoop(currentTime) {
     
     // Check for collisions
     checkCollisions();
+    
+    // Check if goal reached
+    checkGoalReached();
   }
 
   // Clear canvas (lighter ocean blue)
@@ -881,11 +1511,23 @@ function gameLoop(currentTime) {
   // Draw icebergs
   drawIcebergs();
 
+  // Draw start port
+  drawStartPort();
+
+  // Draw goal
+  drawGoal();
+
   // Draw ship
   drawShip();
   
   // Draw UI overlay
   drawUI();
+  
+  // Draw minimap
+  drawMinimap();
+  
+  // Draw win screen if won
+  drawWinScreen();
   
   // Draw game over overlay if game is over
   drawGameOver();
@@ -893,6 +1535,11 @@ function gameLoop(currentTime) {
   // Continue game loop
   requestAnimationFrame(gameLoop);
 }
+
+// Initialize start port and goal on first game start
+generateStartPort();
+generateGoal();
+gameStartTime = performance.now();
 
 // Start game loop
 gameLoop();
