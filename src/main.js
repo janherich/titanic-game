@@ -663,10 +663,15 @@ function generateStartPort() {
   
   startPort.generated = true;
   
-  // Position ship near start port (slightly away from the port)
-  const shipOffset = goalConfig.radius + 50;
-  camera.x = startPort.x + (Math.random() - 0.5) * shipOffset * 0.5;
-  camera.y = startPort.y + (Math.random() - 0.5) * shipOffset * 0.5;
+  // Position ship near start port (outside the island, but close to it)
+  // Place ship at a distance of 1.5x to 2x the island radius away from the center
+  const minDistance = goalConfig.radius * 1.5; // Outside the island
+  const maxDistance = goalConfig.radius * 2.2; // Not too far
+  const distance = minDistance + Math.random() * (maxDistance - minDistance);
+  const angle = Math.random() * Math.PI * 2; // Random direction
+  
+  camera.x = startPort.x + Math.cos(angle) * distance;
+  camera.y = startPort.y + Math.sin(angle) * distance;
 }
 
 // Generate goal on edge of world (different edge from start port)
