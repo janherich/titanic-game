@@ -30,6 +30,17 @@ window.addEventListener('keyup', (e) => {
 let gameRunning = true;
 let gameOver = false;
 let animationTime = 0;
+let totalDistance = 0; // Total distance sailed in world units
+let lastShipX = 0;
+let lastShipY = 0;
+
+// Coal system
+const coalConfig = {
+  maxCoal: 100, // Maximum coal (100%)
+  depletionRate: 0.01 // Base depletion rate per frame (multiplied by speed)
+};
+
+let currentCoal = coalConfig.maxCoal; // Current coal level (0-100)
 
 // Input state
 const keys = {
@@ -328,23 +339,29 @@ function drawWaves() {
 // Update ship physics
 function updateShip(deltaTime) {
   // Handle acceleration input (UP/DOWN control acceleration, not speed directly)
-  if (keys.ArrowUp) {
-    // Apply forward acceleration
-    ship.acceleration = shipConfig.accelerationPower;
-  } else if (keys.ArrowDown) {
-    // Apply reverse acceleration (deceleration)
-    ship.acceleration = -shipConfig.accelerationPower;
-  } else {
-    // Gradually reduce acceleration when no input
-    if (ship.acceleration > 0) {
-      ship.acceleration = Math.max(0, ship.acceleration - shipConfig.accelerationDecay);
-    } else if (ship.acceleration < 0) {
-      ship.acceleration = Math.min(0, ship.acceleration + shipConfig.accelerationDecay);
+  // But only if we have coal (when coal is 0, no acceleration possible)
+  if (currentCoal > 0) {
+    if (keys.ArrowUp) {
+      // Apply forward acceleration
+      ship.acceleration = shipConfig.accelerationPower;
+    } else if (keys.ArrowDown) {
+      // Apply reverse acceleration (deceleration)
+      ship.acceleration = -shipConfig.accelerationPower;
+    } else {
+      // Gradually reduce acceleration when no input
+      if (ship.acceleration > 0) {
+        ship.acceleration = Math.max(0, ship.acceleration - shipConfig.accelerationDecay);
+      } else if (ship.acceleration < 0) {
+        ship.acceleration = Math.min(0, ship.acceleration + shipConfig.accelerationDecay);
+      }
     }
+  } else {
+    // No coal - can't accelerate, just coast to stop
+    ship.acceleration = 0;
   }
   
-  // Apply acceleration to speed
-  if (ship.acceleration !== 0) {
+  // Apply acceleration to speed (only if we have coal or decelerating)
+  if (ship.acceleration !== 0 && (currentCoal > 0 || ship.acceleration < 0)) {
     ship.speed += ship.acceleration;
     // Clamp speed to limits
     if (ship.speed > shipConfig.maxSpeed) {
@@ -354,8 +371,9 @@ function updateShip(deltaTime) {
     }
   }
   
-  // Apply friction when no acceleration or when at speed limit
+  // Apply friction when no acceleration or when at speed limit or when out of coal
   if (ship.acceleration === 0 || 
+      currentCoal <= 0 ||
       (ship.acceleration > 0 && ship.speed >= shipConfig.maxSpeed) ||
       (ship.acceleration < 0 && ship.speed <= -shipConfig.maxReverseSpeed)) {
     if (ship.speed > 0) {
@@ -408,8 +426,22 @@ function updateShip(deltaTime) {
   camera.y += pivotWorldY - newPivotWorldY;
   
   // Move camera (world) forward/backward based on current rotation
-  camera.x += Math.cos(ship.rotation) * ship.speed;
-  camera.y += Math.sin(ship.rotation) * ship.speed;
+  const moveX = Math.cos(ship.rotation) * ship.speed;
+  const moveY = Math.sin(ship.rotation) * ship.speed;
+  camera.x += moveX;
+  camera.y += moveY;
+  
+  // Track distance sailed
+  const distanceThisFrame = Math.sqrt(moveX * moveX + moveY * moveY);
+  totalDistance += distanceThisFrame;
+  
+  // Deplete coal only when moving, proportional to speed
+  if (Math.abs(ship.speed) > 0) {
+    // Coal depletion is directly proportional to speed
+    const speedFactor = Math.abs(ship.speed) / shipConfig.maxSpeed; // 0 to 1
+    const coalDepletion = coalConfig.depletionRate * speedFactor;
+    currentCoal = Math.max(0, currentCoal - coalDepletion);
+  }
 }
 
 // Generate icebergs for a chunk
@@ -618,11 +650,20 @@ function drawGameOver() {
   ctx.font = 'bold 48px Arial';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 40);
+  ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 100);
+  
+  // Calculate final stats
+  const speedInKnots = Math.abs(ship.speed) * 10;
+  const distanceInNauticalMiles = totalDistance * 0.01;
+  
+  // Stats text
+  ctx.font = '20px Arial';
+  ctx.fillText(`Final Speed: ${speedInKnots.toFixed(1)} knots`, canvas.width / 2, canvas.height / 2 - 50);
+  ctx.fillText(`Distance Traveled: ${distanceInNauticalMiles.toFixed(2)} nm`, canvas.width / 2, canvas.height / 2 - 20);
   
   // Restart button
   const buttonX = canvas.width / 2;
-  const buttonY = canvas.height / 2 + 40;
+  const buttonY = canvas.height / 2 + 60;
   const buttonWidth = 200;
   const buttonHeight = 50;
   
@@ -678,6 +719,8 @@ function restartGame() {
   
   // Reset animation
   animationTime = 0;
+  totalDistance = 0;
+  currentCoal = coalConfig.maxCoal;
   lastTime = performance.now();
   
   // Note: Don't call gameLoop() here - it's already running via requestAnimationFrame
@@ -701,6 +744,85 @@ canvas.addEventListener('click', (e) => {
     restartGame();
   }
 });
+
+// Draw UI overlay with ship info
+function drawUI() {
+  if (gameOver) return;
+  
+  ctx.save();
+  
+  // Speed conversion: 1 unit of speed ≈ 10 knots (adjust as needed)
+  const speedInKnots = Math.abs(ship.speed) * 10;
+  
+  // Format distance (convert to nautical miles, 1 unit ≈ 0.01 nautical miles)
+  const distanceInNauticalMiles = totalDistance * 0.01;
+  
+  // UI panel background
+  const panelX = 20;
+  const panelY = 20;
+  const panelWidth = 200;
+  const panelHeight = 110;
+  
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+  
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+  
+  // Text styling
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 16px Arial';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  
+  // Speed display
+  ctx.fillText(`Speed: ${speedInKnots.toFixed(1)} knots`, panelX + 10, panelY + 15);
+  
+  // Distance display
+  ctx.fillText(`Distance: ${distanceInNauticalMiles.toFixed(2)} nm`, panelX + 10, panelY + 40);
+  
+  // Coal indicator
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText('Coal:', panelX + 10, panelY + 70);
+  
+  // Coal bar background
+  const barX = panelX + 10;
+  const barY = panelY + 90;
+  const barWidth = 180;
+  const barHeight = 12;
+  
+  ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+  
+  // Coal bar fill (color based on percentage)
+  const coalPercentage = (currentCoal / coalConfig.maxCoal) * 100;
+  const fillWidth = (coalPercentage / 100) * barWidth;
+  
+  // Color coding: green (100-70%), yellow (70-20%), red (<20%)
+  if (coalPercentage >= 70) {
+    ctx.fillStyle = '#4caf50'; // Green
+  } else if (coalPercentage >= 20) {
+    ctx.fillStyle = '#ffeb3b'; // Yellow
+  } else {
+    ctx.fillStyle = '#f44336'; // Red
+  }
+  
+  ctx.fillRect(barX, barY, fillWidth, barHeight);
+  
+  // Bar border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+  
+  // Coal percentage text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '12px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${coalPercentage.toFixed(0)}%`, barX + barWidth / 2, barY + barHeight / 2 + 4);
+  
+  ctx.restore();
+}
 
 // Draw ship (always at screen center)
 function drawShip() {
@@ -761,6 +883,9 @@ function gameLoop(currentTime) {
 
   // Draw ship
   drawShip();
+  
+  // Draw UI overlay
+  drawUI();
   
   // Draw game over overlay if game is over
   drawGameOver();
