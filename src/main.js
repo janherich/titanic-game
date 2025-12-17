@@ -755,205 +755,271 @@ function drawStartPort() {
   }
   
   // Draw the same island design as goal (reuse the drawing code)
-  drawIsland(portScreenX, portScreenY, '#6B8E23'); // Use olive green color to differentiate
+  drawIsland(portScreenX, portScreenY, '#6B8E23', startPort.x, startPort.y, 1.0, false);
 }
 
-// Draw island (reusable function for both start port and goal)
-function drawIsland(screenX, screenY, accentColor = '#4caf50') {
+// Draw island (reusable function for both start port and goal, and minimap)
+// worldX, worldY: world coordinates for seed generation (for consistent shape)
+// scale: scaling factor (1.0 for normal, smaller for minimap)
+// isMinimap: if true, draws simplified version
+function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, worldY = 0, scale = 1.0, isMinimap = false) {
   ctx.save();
   ctx.translate(screenX, screenY);
+  ctx.scale(scale, scale);
   
   const islandSize = goalConfig.radius;
   
-  // Draw island (irregular oval shape - bigger)
-  ctx.fillStyle = '#8B7355'; // Sandy brown
+  // Generate irregular/jagged island shape (similar to icebergs)
+  // Use island position as seed for consistent shape
+  const seed = (worldX * 1000 + worldY) * 0.1;
+  const pointCount = isMinimap ? 12 : 16;
+  const points = [];
+  const angleStep = (Math.PI * 2) / pointCount;
+  const baseRadiusX = islandSize * 0.9;
+  const baseRadiusY = islandSize * 0.7;
+  
+  for (let i = 0; i < pointCount; i++) {
+    const angle = i * angleStep;
+    // Add irregularity using seeded random (similar to icebergs)
+    const irregularityHash = Math.sin(seed + angle) * 10000;
+    const irregularity = 1 + (Math.abs(irregularityHash - Math.floor(irregularityHash)) - 0.5) * 0.4;
+    
+    // Create elliptical base with irregularity
+    const radiusX = baseRadiusX * irregularity;
+    const radiusY = baseRadiusY * irregularity;
+    
+    points.push({
+      x: Math.cos(angle) * radiusX,
+      y: Math.sin(angle) * radiusY
+    });
+  }
+  
+  // Draw jagged island shape
+  ctx.fillStyle = '#4a7c42'; // Green
   ctx.beginPath();
-  ctx.ellipse(0, 0, islandSize * 0.9, islandSize * 0.7, 0, 0, Math.PI * 2);
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.closePath();
   ctx.fill();
   
   // Island outline
-  ctx.strokeStyle = '#6B5D45';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#3a6b32';
+  ctx.lineWidth = isMinimap ? (scale > 0.1 ? 1.5 : 0.5) : 3;
   ctx.stroke();
   
-  // Draw beach/sand area
-  ctx.fillStyle = '#D2B48C';
-  ctx.beginPath();
-  ctx.ellipse(0, islandSize * 0.5, islandSize * 0.7, islandSize * 0.15, 0, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // Draw trees/vegetation on island (more detailed)
-  ctx.fillStyle = '#2d5016'; // Dark green for tree trunks
-  for (let i = 0; i < 8; i++) {
-    const angle = (i * Math.PI * 2) / 8;
-    const dist = islandSize * (0.3 + (i % 3) * 0.15);
-    const x = Math.cos(angle) * dist;
-    const y = Math.sin(angle) * dist;
-    
-    // Tree trunk
-    ctx.fillRect(x - 3, y, 6, 12);
-    
-    // Tree foliage
-    ctx.fillStyle = '#3a7c42';
+  // Draw beach/sand area (only if not minimap or if minimap is expanded)
+  if (!isMinimap || scale > 0.1) {
+    ctx.fillStyle = '#D2B48C';
     ctx.beginPath();
-    ctx.arc(x, y - 5, 15, 0, Math.PI * 2);
+    ctx.ellipse(0, islandSize * 0.5, islandSize * 0.7, islandSize * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2d5016'; // Reset for next trunk
   }
   
-  // Draw dock/pier (extending from island - more detailed)
-  ctx.fillStyle = '#654321'; // Brown wood
-  const dockWidth = islandSize * 0.7;
-  const dockHeight = islandSize * 0.25;
-  ctx.fillRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
-  ctx.strokeStyle = '#543210';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
+  // Draw trees/vegetation on island (more detailed, skip for small minimap)
+  if (!isMinimap) {
+    ctx.fillStyle = '#2d5016'; // Dark green for tree trunks
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI * 2) / 8;
+      const dist = islandSize * (0.3 + (i % 3) * 0.15);
+      const x = Math.cos(angle) * dist;
+      const y = Math.sin(angle) * dist;
+      
+      // Tree trunk
+      ctx.fillRect(x - 3, y, 6, 12);
+      
+      // Tree foliage
+      ctx.fillStyle = '#3a7c42';
+      ctx.beginPath();
+      ctx.arc(x, y - 5, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#2d5016'; // Reset for next trunk
+    }
+  } else if (scale > 0.1) {
+    // Simplified trees for expanded minimap
+    ctx.fillStyle = '#3a7c42';
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI * 2) / 4;
+      const dist = islandSize * 0.4;
+      const treeX = Math.cos(angle) * dist;
+      const treeY = Math.sin(angle) * dist;
+      ctx.beginPath();
+      ctx.arc(treeX, treeY, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   
-  // Draw dock planks (wooden planks detail)
-  ctx.strokeStyle = '#543210';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 6; i++) {
-    const x = -dockWidth / 2 + (i * dockWidth / 6);
+  // Draw dock/pier (extending from island - more detailed, skip for small minimap)
+  if (!isMinimap || scale > 0.1) {
+    ctx.fillStyle = '#654321'; // Brown wood
+    const dockWidth = islandSize * 0.7;
+    const dockHeight = islandSize * 0.25;
+    ctx.fillRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
+    ctx.strokeStyle = '#543210';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
+    
+    // Draw dock planks (wooden planks detail) - only for full detail
+    if (!isMinimap) {
+      ctx.strokeStyle = '#543210';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const x = -dockWidth / 2 + (i * dockWidth / 6);
+        ctx.beginPath();
+        ctx.moveTo(x, islandSize * 0.45);
+        ctx.lineTo(x, islandSize * 0.45 + dockHeight);
+        ctx.stroke();
+      }
+      
+      // Draw dock posts (more posts)
+      ctx.fillStyle = '#4a3428';
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillRect(-dockWidth / 2 + (i + 2) * (dockWidth / 5) - 2, islandSize * 0.45, 4, dockHeight);
+      }
+    }
+  } else {
+    // Simplified dock for small minimap
+    ctx.fillStyle = '#654321';
+    const dockWidth = islandSize * 0.6;
+    const dockHeight = islandSize * 0.15;
+    ctx.fillRect(-dockWidth / 2, islandSize * 0.4, dockWidth, dockHeight);
+  }
+  
+  // Draw small boats at dock (only for full detail)
+  if (!isMinimap) {
+    // Boat 1
+    ctx.fillStyle = '#8B6F47';
+    ctx.fillRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
+    // Boat mast
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(-islandSize * 0.175, islandSize * 0.5, 2, -islandSize * 0.1);
+    
+    // Boat 2
+    ctx.fillStyle = '#8B6F47';
+    ctx.fillRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
+    ctx.strokeStyle = '#654321';
+    ctx.strokeRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
+  }
+  
+  // Draw port buildings (more buildings, only for full detail)
+  if (!isMinimap) {
+    // Building 1 (left - warehouse)
+    ctx.fillStyle = '#d4a574'; // Light brown/tan
+    ctx.fillRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
+    ctx.strokeStyle = '#8B6F47';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
+    
+    // Building 1 roof
+    ctx.fillStyle = '#8B4513';
     ctx.beginPath();
-    ctx.moveTo(x, islandSize * 0.45);
-    ctx.lineTo(x, islandSize * 0.45 + dockHeight);
-    ctx.stroke();
+    ctx.moveTo(-islandSize * 0.6, -islandSize * 0.2);
+    ctx.lineTo(-islandSize * 0.45, -islandSize * 0.35);
+    ctx.lineTo(-islandSize * 0.3, -islandSize * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Building 1 windows
+    ctx.fillStyle = '#4a90e2';
+    ctx.fillRect(-islandSize * 0.55, -islandSize * 0.1, 8, 10);
+    ctx.fillRect(-islandSize * 0.45, -islandSize * 0.1, 8, 10);
+    ctx.fillRect(-islandSize * 0.35, -islandSize * 0.1, 8, 10);
+    
+    // Building 2 (center - office)
+    ctx.fillStyle = '#e8d5b7';
+    ctx.fillRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
+    ctx.strokeStyle = '#8B6F47';
+    ctx.strokeRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
+    
+    // Building 2 roof
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.moveTo(-islandSize * 0.15, -islandSize * 0.15);
+    ctx.lineTo(0, -islandSize * 0.3);
+    ctx.lineTo(islandSize * 0.15, -islandSize * 0.15);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Building 2 door
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(-islandSize * 0.05, 0, islandSize * 0.1, islandSize * 0.15);
+    
+    // Building 2 windows
+    ctx.fillStyle = '#4a90e2';
+    ctx.fillRect(-islandSize * 0.1, -islandSize * 0.05, 8, 8);
+    ctx.fillRect(islandSize * 0.02, -islandSize * 0.05, 8, 8);
+    
+    // Building 3 (right - storage)
+    ctx.fillStyle = '#c9a876';
+    ctx.fillRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
+    ctx.strokeStyle = '#8B6F47';
+    ctx.strokeRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
+    
+    // Building 3 roof
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.moveTo(islandSize * 0.3, -islandSize * 0.25);
+    ctx.lineTo(islandSize * 0.44, -islandSize * 0.38);
+    ctx.lineTo(islandSize * 0.58, -islandSize * 0.25);
+    ctx.closePath();
+    ctx.fill();
   }
-  
-  // Draw dock posts (more posts)
-  ctx.fillStyle = '#4a3428';
-  for (let i = -2; i <= 2; i++) {
-    ctx.fillRect(-dockWidth / 2 + (i + 2) * (dockWidth / 5) - 2, islandSize * 0.45, 4, dockHeight);
-  }
-  
-  // Draw small boats at dock
-  // Boat 1
-  ctx.fillStyle = '#8B6F47';
-  ctx.fillRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
-  ctx.strokeStyle = '#654321';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
-  // Boat mast
-  ctx.fillStyle = '#654321';
-  ctx.fillRect(-islandSize * 0.175, islandSize * 0.5, 2, -islandSize * 0.1);
-  
-  // Boat 2
-  ctx.fillStyle = '#8B6F47';
-  ctx.fillRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
-  ctx.strokeStyle = '#654321';
-  ctx.strokeRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
-  
-  // Draw port buildings (more buildings)
-  // Building 1 (left - warehouse)
-  ctx.fillStyle = '#d4a574'; // Light brown/tan
-  ctx.fillRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
-  ctx.strokeStyle = '#8B6F47';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
-  
-  // Building 1 roof
-  ctx.fillStyle = '#8B4513';
-  ctx.beginPath();
-  ctx.moveTo(-islandSize * 0.6, -islandSize * 0.2);
-  ctx.lineTo(-islandSize * 0.45, -islandSize * 0.35);
-  ctx.lineTo(-islandSize * 0.3, -islandSize * 0.2);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Building 1 windows
-  ctx.fillStyle = '#4a90e2';
-  ctx.fillRect(-islandSize * 0.55, -islandSize * 0.1, 8, 10);
-  ctx.fillRect(-islandSize * 0.45, -islandSize * 0.1, 8, 10);
-  ctx.fillRect(-islandSize * 0.35, -islandSize * 0.1, 8, 10);
-  
-  // Building 2 (center - office)
-  ctx.fillStyle = '#e8d5b7';
-  ctx.fillRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
-  ctx.strokeStyle = '#8B6F47';
-  ctx.strokeRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
-  
-  // Building 2 roof
-  ctx.fillStyle = '#8B4513';
-  ctx.beginPath();
-  ctx.moveTo(-islandSize * 0.15, -islandSize * 0.15);
-  ctx.lineTo(0, -islandSize * 0.3);
-  ctx.lineTo(islandSize * 0.15, -islandSize * 0.15);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Building 2 door
-  ctx.fillStyle = '#654321';
-  ctx.fillRect(-islandSize * 0.05, 0, islandSize * 0.1, islandSize * 0.15);
-  
-  // Building 2 windows
-  ctx.fillStyle = '#4a90e2';
-  ctx.fillRect(-islandSize * 0.1, -islandSize * 0.05, 8, 8);
-  ctx.fillRect(islandSize * 0.02, -islandSize * 0.05, 8, 8);
-  
-  // Building 3 (right - storage)
-  ctx.fillStyle = '#c9a876';
-  ctx.fillRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
-  ctx.strokeStyle = '#8B6F47';
-  ctx.strokeRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
-  
-  // Building 3 roof
-  ctx.fillStyle = '#8B4513';
-  ctx.beginPath();
-  ctx.moveTo(islandSize * 0.3, -islandSize * 0.25);
-  ctx.lineTo(islandSize * 0.44, -islandSize * 0.38);
-  ctx.lineTo(islandSize * 0.58, -islandSize * 0.25);
-  ctx.closePath();
-  ctx.fill();
   
   // Draw lighthouse (taller and more detailed)
   const lighthouseX = 0;
   const lighthouseY = -islandSize * 0.6;
   
-  // Lighthouse base
-  ctx.fillStyle = '#f5f5f5';
-  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
-  ctx.strokeStyle = '#cccccc';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
+  if (!isMinimap) {
+    // Lighthouse base
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
+    ctx.strokeStyle = '#cccccc';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
+    
+    // Lighthouse stripes (red and white)
+    ctx.fillStyle = '#d32f2f';
+    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.1, islandSize * 0.24, islandSize * 0.08);
+    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.25, islandSize * 0.24, islandSize * 0.08);
+    
+    // Lighthouse top (red dome)
+    ctx.fillStyle = '#d32f2f';
+    ctx.beginPath();
+    ctx.arc(lighthouseX, lighthouseY, islandSize * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Lighthouse light (pulsing)
+    const lightPulse = Math.sin(animationTime * 0.2) * 0.4 + 0.6;
+    ctx.fillStyle = `rgba(255, 255, 200, ${lightPulse})`;
+    ctx.beginPath();
+    ctx.arc(lighthouseX, lighthouseY, islandSize * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Simplified lighthouse for minimap
+    ctx.fillStyle = '#d32f2f';
+    ctx.beginPath();
+    ctx.arc(lighthouseX, lighthouseY, scale > 0.1 ? 2 : 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
   
-  // Lighthouse stripes (red and white)
-  ctx.fillStyle = '#d32f2f';
-  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.1, islandSize * 0.24, islandSize * 0.08);
-  ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.25, islandSize * 0.24, islandSize * 0.08);
-  
-  // Lighthouse top (red dome)
-  ctx.fillStyle = '#d32f2f';
-  ctx.beginPath();
-  ctx.arc(lighthouseX, lighthouseY, islandSize * 0.12, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // Lighthouse light (pulsing)
-  const lightPulse = Math.sin(animationTime * 0.2) * 0.4 + 0.6;
-  ctx.fillStyle = `rgba(255, 255, 200, ${lightPulse})`;
-  ctx.beginPath();
-  ctx.arc(lighthouseX, lighthouseY, islandSize * 0.18, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // Draw flag on lighthouse
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(lighthouseX + islandSize * 0.12, lighthouseY - islandSize * 0.05, islandSize * 0.08, islandSize * 0.06);
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(lighthouseX + islandSize * 0.12, lighthouseY - islandSize * 0.05, islandSize * 0.08, islandSize * 0.06);
-  
-  // Draw crane/loading equipment
-  ctx.strokeStyle = '#654321';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(-islandSize * 0.4, islandSize * 0.2);
-  ctx.lineTo(-islandSize * 0.4, islandSize * 0.35);
-  ctx.lineTo(-islandSize * 0.2, islandSize * 0.35);
-  ctx.stroke();
-  
-  // Crane hook
-  ctx.fillStyle = '#333333';
-  ctx.fillRect(-islandSize * 0.22, islandSize * 0.33, 4, 8);
+  // Draw crane/loading equipment (only for full detail)
+  if (!isMinimap) {
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-islandSize * 0.4, islandSize * 0.2);
+    ctx.lineTo(-islandSize * 0.4, islandSize * 0.35);
+    ctx.lineTo(-islandSize * 0.2, islandSize * 0.35);
+    ctx.stroke();
+    
+    // Crane hook
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(-islandSize * 0.22, islandSize * 0.33, 4, 8);
+  }
   
   ctx.restore();
 }
@@ -977,7 +1043,7 @@ function drawGoal() {
   }
   
   // Draw the island using the reusable function
-  drawIsland(goalScreenX, goalScreenY, '#4caf50');
+  drawIsland(goalScreenX, goalScreenY, '#4caf50', goal.x, goal.y, 1.0, false);
 }
 
 // Check collision between ship and icebergs
@@ -1182,14 +1248,28 @@ function restartGame() {
 
 // Game over button bounds (for click detection)
 let gameOverButton = null;
+let minimapExpanded = false;
+let minimapBounds = null;
 
 // Handle mouse clicks for restart button
 canvas.addEventListener('click', (e) => {
-  if ((!gameOver && !gameWon) || !gameOverButton) return;
-  
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
+  
+  // Check if click is on minimap
+  if (minimapBounds && !gameOver && !gameWon) {
+    if (x >= minimapBounds.x &&
+        x <= minimapBounds.x + minimapBounds.width &&
+        y >= minimapBounds.y &&
+        y <= minimapBounds.y + minimapBounds.height) {
+      minimapExpanded = !minimapExpanded;
+      return;
+    }
+  }
+  
+  // Check if click is on game over/win button
+  if ((!gameOver && !gameWon) || !gameOverButton) return;
   
   if (x >= gameOverButton.x &&
       x <= gameOverButton.x + gameOverButton.width &&
@@ -1357,24 +1437,36 @@ function drawIceBarriers() {
   ctx.restore();
 }
 
-// Draw minimap in upper right corner
+// Draw minimap in upper right corner (or full screen if expanded)
 function drawMinimap() {
   if (gameOver) return;
   
   ctx.save();
   
-  const minimapSize = 200;
-  const minimapX = canvas.width - minimapSize - 20;
-  const minimapY = 20;
-  const padding = 10;
-  const mapSize = minimapSize - padding * 2;
+  let minimapSize, minimapX, minimapY, padding, mapSize;
   
-  // Minimap background
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  if (minimapExpanded) {
+    // Full screen minimap
+    minimapSize = Math.min(canvas.width, canvas.height);
+    minimapX = (canvas.width - minimapSize) / 2;
+    minimapY = (canvas.height - minimapSize) / 2;
+    padding = 40;
+    mapSize = minimapSize - padding * 2;
+  } else {
+    // Small minimap in corner
+    minimapSize = 200;
+    minimapX = canvas.width - minimapSize - 20;
+    minimapY = 20;
+    padding = 10;
+    mapSize = minimapSize - padding * 2;
+  }
+  
+  // Minimap background - blue water
+  ctx.fillStyle = minimapExpanded ? '#1a3a5a' : '#2a4a6a';
   ctx.fillRect(minimapX, minimapY, minimapSize, minimapSize);
   
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = minimapExpanded ? 4 : 2;
   ctx.strokeRect(minimapX, minimapY, minimapSize, minimapSize);
   
   // Calculate world to minimap scale
@@ -1385,73 +1477,109 @@ function drawMinimap() {
   const mapOffsetX = minimapX + padding;
   const mapOffsetY = minimapY + padding;
   
-  // Draw world boundaries (optional - can be removed for truly infinite world)
+  // Draw world boundaries
   ctx.strokeStyle = '#888888';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = minimapExpanded ? 2 : 1;
   ctx.strokeRect(mapOffsetX, mapOffsetY, worldConfig.width * scale, worldConfig.height * scale);
   
-  // Draw start port on minimap
+  // Draw start port on minimap (reuse drawIsland with scaling)
   if (startPort.generated) {
     const startPortMapX = mapOffsetX + startPort.x * scale;
     const startPortMapY = mapOffsetY + startPort.y * scale;
+    // Scale factor: world-to-minimap scale (island will be drawn at goalConfig.radius * scale pixels)
+    drawIsland(startPortMapX, startPortMapY, '#6B8E23', startPort.x, startPort.y, scale, true);
     
-    ctx.fillStyle = '#6B8E23'; // Olive green for start port
-    ctx.beginPath();
-    ctx.arc(startPortMapX, startPortMapY, 4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Start port radius indicator
+    // Color indicator circle around island
+    const indicatorRadius = goalConfig.radius * scale * 1.1;
     ctx.strokeStyle = '#6B8E23';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = minimapExpanded ? 2 : 1;
     ctx.beginPath();
-    ctx.arc(startPortMapX, startPortMapY, goalConfig.radius * scale, 0, Math.PI * 2);
+    ctx.arc(startPortMapX, startPortMapY, indicatorRadius, 0, Math.PI * 2);
     ctx.stroke();
   }
   
-  // Draw goal on minimap
+  // Draw goal on minimap (reuse drawIsland with scaling)
   if (goal.generated) {
     const goalMapX = mapOffsetX + goal.x * scale;
     const goalMapY = mapOffsetY + goal.y * scale;
+    // Scale factor: world-to-minimap scale (island will be drawn at goalConfig.radius * scale pixels)
+    drawIsland(goalMapX, goalMapY, '#4caf50', goal.x, goal.y, scale, true);
     
-    ctx.fillStyle = '#4caf50'; // Green for goal
-    ctx.beginPath();
-    ctx.arc(goalMapX, goalMapY, 4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Goal radius indicator
+    // Color indicator circle around island
+    const indicatorRadius = goalConfig.radius * scale * 1.1;
     ctx.strokeStyle = '#4caf50';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = minimapExpanded ? 2 : 1;
     ctx.beginPath();
-    ctx.arc(goalMapX, goalMapY, goalConfig.radius * scale, 0, Math.PI * 2);
+    ctx.arc(goalMapX, goalMapY, indicatorRadius, 0, Math.PI * 2);
     ctx.stroke();
   }
   
-  // Draw ship position
+  // Draw ship position as miniature ship outline
   const shipMapX = mapOffsetX + camera.x * scale;
   const shipMapY = mapOffsetY + camera.y * scale;
   
-  ctx.fillStyle = '#ff0000';
-  ctx.beginPath();
-  ctx.arc(shipMapX, shipMapY, 3, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.save();
+  ctx.translate(shipMapX, shipMapY);
+  ctx.rotate(ship.rotation);
   
-  // Draw ship direction indicator
+  // Scale for minimap (ship is much smaller on minimap)
+  const minimapShipScale = minimapExpanded ? 0.15 : 0.08;
+  const minimapLength = ship.length * minimapShipScale;
+  const minimapWidth = ship.width * minimapShipScale;
+  
+  // Draw ship hull outline (ellipse)
   ctx.strokeStyle = '#ff0000';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = minimapExpanded ? 2 : 1;
   ctx.beginPath();
-  ctx.moveTo(shipMapX, shipMapY);
-  const indicatorLength = 8;
-  ctx.lineTo(
-    shipMapX + Math.cos(ship.rotation) * indicatorLength,
-    shipMapY + Math.sin(ship.rotation) * indicatorLength
-  );
+  ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
   ctx.stroke();
   
-  // Minimap label
+  // Draw simplified superstructure (small rectangle)
+  const structureLength = minimapLength * 0.7;
+  const structureWidth = minimapWidth * 0.5;
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 12px Arial';
+  ctx.fillRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+  ctx.strokeStyle = '#ff0000';
+  ctx.lineWidth = minimapExpanded ? 1.5 : 0.5;
+  ctx.strokeRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+  
+  // Draw simplified smokestacks (small circles)
+  const stackRadius = minimapExpanded ? 1.5 : 0.8;
+  const stackSpacing = minimapLength * 0.15;
+  const totalStackWidth = (ship.stackCount - 1) * stackSpacing;
+  const startStackX = -totalStackWidth / 2;
+  
+  ctx.fillStyle = '#000000';
+  for (let i = 0; i < ship.stackCount; i++) {
+    ctx.beginPath();
+    ctx.arc(startStackX + i * stackSpacing, 0, stackRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  ctx.restore();
+  
+  // Minimap label and instructions
+  ctx.fillStyle = '#ffffff';
+  ctx.font = minimapExpanded ? 'bold 24px Arial' : 'bold 12px Arial';
   ctx.textAlign = 'left';
-  ctx.fillText('Map', minimapX + 10, minimapY + 10);
+  ctx.fillText('Map', minimapX + (minimapExpanded ? 20 : 10), minimapY + (minimapExpanded ? 30 : 10));
+  
+  if (minimapExpanded) {
+    ctx.font = '18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Click to close', canvas.width / 2, minimapY + minimapSize - 20);
+  } else {
+    ctx.font = '10px Arial';
+    ctx.fillText('Click to expand', minimapX + 10, minimapY + minimapSize - 10);
+  }
+  
+  // Store minimap bounds for click detection
+  minimapBounds = {
+    x: minimapX,
+    y: minimapY,
+    width: minimapSize,
+    height: minimapSize
+  };
   
   ctx.restore();
 }
@@ -1492,8 +1620,8 @@ function gameLoop(currentTime) {
   // Update animation time
   animationTime += 0.5;
 
-  // Update ship physics (only if game is running)
-  if (!gameOver && !gameWon) {
+  // Update ship physics (only if game is running and minimap is not expanded)
+  if (!gameOver && !gameWon && !minimapExpanded) {
     updateShip(deltaTime);
     
     // Ensure icebergs are generated for visible area
