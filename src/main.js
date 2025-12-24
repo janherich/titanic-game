@@ -20,6 +20,13 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   
+  // Handle submerged mode toggle with 's' key (submarines only)
+  if ((e.key === 's' || e.key === 'S') && ship.category === 'Submarines') {
+    ship.isSubmerged = !ship.isSubmerged;
+    e.preventDefault();
+    return;
+  }
+  
   if (keys.hasOwnProperty(e.key)) {
     keys[e.key] = true;
     e.preventDefault();
@@ -60,89 +67,120 @@ const keys = {
   ArrowRight: false
 };
 
-// Ship types configuration - easy to add new ships here!
-// To add a new ship, simply add a new entry to this object with:
-// - Visual properties: length, width, stackCount, stackRadius
-// - Physics properties: maxSpeed, maxReverseSpeed, accelerationPower, accelerationDecay, 
-//   friction, maxRudderAngle, rudderSpeed, turnRate, pivotPoint
+// Ship types configuration - organized by categories
+// To add a new ship, add it to the appropriate category with visual and physics properties
 const shipTypes = {
-  '4-Stack Steamer': {
-    // Visual properties
-    length: 200,
-    width: 60,
-    stackCount: 4,
-    stackRadius: 10,
-    // Physics properties
-    maxSpeed: 3.5,
-    maxReverseSpeed: 0.8,
-    accelerationPower: 0.03,
-    accelerationDecay: 0.08,
-    friction: 0.02,
-    maxRudderAngle: Math.PI / 6, // 30 degrees
-    rudderSpeed: 0.03,
-    turnRate: 0.02,
-    pivotPoint: 0.7
+  Steamers: {
+    '4-Stack Steamer': {
+      visual: {
+        length: 200,
+        width: 60,
+        stackCount: 4,
+        stackRadius: 10
+      },
+      physics: {
+        maxSpeed: 3.5,
+        maxReverseSpeed: 0.8,
+        accelerationPower: 0.03,
+        accelerationDecay: 0.08,
+        friction: 0.02,
+        maxRudderAngle: Math.PI / 6, // 30 degrees
+        rudderSpeed: 0.03,
+        turnRate: 0.02,
+        pivotPoint: 0.7
+      }
+    },
+    'SS Normandie': {
+      visual: {
+        length: 280, // 40% longer
+        width: 60,
+        stackCount: 3, // Different number of stacks
+        stackRadius: 12 // Slightly larger stacks
+      },
+      physics: {
+        maxSpeed: 5.0, // Much faster
+        maxReverseSpeed: 1.2,
+        accelerationPower: 0.04, // Better acceleration
+        accelerationDecay: 0.08,
+        friction: 0.018, // Slightly less friction
+        maxRudderAngle: Math.PI / 6,
+        rudderSpeed: 0.035, // More responsive rudder
+        turnRate: 0.025, // Better turning
+        pivotPoint: 0.65 // Slightly different pivot
+      }
+    },
+    'SS United States': {
+      visual: {
+        length: 270, // Long and sleek
+        width: 50,   // Narrower for speed
+        stackCount: 2, // Only 2 stacks
+        stackRadius: 10 // Larger stacks
+      },
+      physics: {
+        maxSpeed: 6.5, // Fastest ship
+        maxReverseSpeed: 1.5,
+        accelerationPower: 0.05, // Excellent acceleration
+        accelerationDecay: 0.08,
+        friction: 0.015, // Less friction for speed
+        maxRudderAngle: Math.PI / 6,
+        rudderSpeed: 0.04, // Very responsive rudder
+        turnRate: 0.03, // Excellent turning
+        pivotPoint: 0.6 // Forward pivot for agility
+      }
+    },
+    'Costa Concordia': {
+      visual: {
+        length: 320,
+        width: 90,
+        stackCount: 1,
+        stackRadius: 20
+      },
+      physics: {
+        maxSpeed: 3.0,
+        maxReverseSpeed: 1.5,
+        accelerationPower: 0.02,
+        accelerationDecay: 0.08,
+        friction: 0.025,
+        maxRudderAngle: Math.PI / 6,
+        rudderSpeed: 0.01,
+        turnRate: 0.01,
+        pivotPoint: 0.5
+      }
+    }
   },
-  'SS Normandie': {
-    // Visual properties (bigger)
-    length: 280, // 40% longer
-    width: 60,
-    stackCount: 3, // Different number of stacks
-    stackRadius: 12, // Slightly larger stacks
-    // Physics properties (faster)
-    maxSpeed: 5.0, // Much faster
-    maxReverseSpeed: 1.2,
-    accelerationPower: 0.04, // Better acceleration
-    accelerationDecay: 0.08,
-    friction: 0.018, // Slightly less friction
-    maxRudderAngle: Math.PI / 6,
-    rudderSpeed: 0.035, // More responsive rudder
-    turnRate: 0.025, // Better turning
-    pivotPoint: 0.65 // Slightly different pivot
-  },
-  'SS United States': {
-    // Visual properties
-    length: 270, // Long and sleek
-    width: 50,   // Narrower for speed
-    stackCount: 2, // Only 2 stacks
-    stackRadius: 10, // Larger stacks
-    // Physics properties (fastest)
-    maxSpeed: 6.5, // Fastest ship
-    maxReverseSpeed: 1.5,
-    accelerationPower: 0.05, // Excellent acceleration
-    accelerationDecay: 0.08,
-    friction: 0.015, // Less friction for speed
-    maxRudderAngle: Math.PI / 6,
-    rudderSpeed: 0.04, // Very responsive rudder
-    turnRate: 0.03, // Excellent turning
-    pivotPoint: 0.6 // Forward pivot for agility
-  },
-  'Costa Concordia': {
-    // Visual properties
-    length: 320,
-    width: 90,
-    stackCount: 1,
-    stackRadius: 20,
-    // Physics properties
-    maxSpeed: 3.0,
-    maxReverseSpeed: 1.5,
-    accelerationPower: 0.02, // Excellent acceleration
-    accelerationDecay: 0.08,
-    friction: 0.025,
-    maxRudderAngle: Math.PI / 6,
-    rudderSpeed: 0.01,
-    turnRate: 0.01,
-    pivotPoint: 0.5
+  Submarines: {
+    'Type VII': {
+      visual: {
+        length: 220, // Typical Type VII length
+        width: 50,  // Narrower than surface ships
+        conningTowerSize: 12 // Size of conning tower (rendered as elongated cylinder)
+      },
+      physics: {
+        maxSpeed: 4.5, // Surface speed
+        maxReverseSpeed: 1.0,
+        maxSubmergedSpeed: 3.0, // Submerged speed (slower)
+        maxSubmergedReverseSpeed: 0.8, // Submerged reverse speed
+        accelerationPower: 0.035,
+        accelerationDecay: 0.08,
+        friction: 0.016, // Less friction (streamlined)
+        maxRudderAngle: Math.PI / 5, // 36 degrees - more maneuverable
+        rudderSpeed: 0.04,
+        turnRate: 0.028, // Better turning than most ships
+        pivotPoint: 0.55 // Slightly forward pivot
+      }
+    }
   }
 };
 
-// Current ship type (can be changed to switch ships)
-let currentShipType = '4-Stack Steamer';
+// Current ship type (format: { category: 'Steamers', name: '4-Stack Steamer' })
+let currentShipType = { category: 'Steamers', name: '4-Stack Steamer' };
 
 // Ship physics configuration (will be set from shipTypes)
 const shipConfig = {
   maxSpeed: 3.5,
   maxReverseSpeed: 0.8,
+  maxSubmergedSpeed: 0, // For submarines when submerged
+  maxSubmergedReverseSpeed: 0, // For submarines when submerged
   accelerationPower: 0.03,
   accelerationDecay: 0.08,
   friction: 0.02,
@@ -215,46 +253,95 @@ const ship = {
   length: 200,
   width: 60,
   stackCount: 4,
-  stackRadius: 10
+  stackRadius: 10,
+  conningTowerSize: 0, // For submarines only
+  category: 'Steamers', // Current ship category
+  isSubmerged: false // For submarines: true when submerged, false when on surface
 };
 
 // Function to apply a ship type to the ship and shipConfig
-function applyShipType(shipTypeName) {
-  const shipType = shipTypes[shipTypeName];
-  if (!shipType) {
-    console.warn(`Ship type "${shipTypeName}" not found, using default`);
+function applyShipType(shipTypeInfo) {
+  // Handle both old string format (for backwards compatibility) and new object format
+  let category, name;
+  if (typeof shipTypeInfo === 'string') {
+    // Legacy format - search all categories
+    for (const cat of Object.keys(shipTypes)) {
+      if (shipTypes[cat][shipTypeInfo]) {
+        category = cat;
+        name = shipTypeInfo;
+        break;
+      }
+    }
+  } else {
+    category = shipTypeInfo.category;
+    name = shipTypeInfo.name;
+  }
+  
+  if (!category || !shipTypes[category] || !shipTypes[category][name]) {
+    console.warn(`Ship type "${name}" in category "${category}" not found, using default`);
     return;
   }
   
+  const shipType = shipTypes[category][name];
+  
+  // Store category for rendering decisions
+  ship.category = category;
+  
   // Apply visual properties to ship
-  ship.length = shipType.length;
-  ship.width = shipType.width;
-  ship.stackCount = shipType.stackCount;
-  ship.stackRadius = shipType.stackRadius;
+  ship.length = shipType.visual.length;
+  ship.width = shipType.visual.width;
+  
+  // Apply category-specific visual properties
+  if (category === 'Submarines') {
+    // Submarines use conningTowerSize
+    ship.conningTowerSize = shipType.visual.conningTowerSize || 0;
+    ship.stackCount = 0; // No stacks for submarines
+    ship.stackRadius = 0;
+  } else {
+    // Surface ships use stackCount and stackRadius
+    ship.stackCount = shipType.visual.stackCount || 0;
+    ship.stackRadius = shipType.visual.stackRadius || 0;
+    ship.conningTowerSize = 0;
+  }
   
   // Apply physics properties to shipConfig
-  shipConfig.maxSpeed = shipType.maxSpeed;
-  shipConfig.maxReverseSpeed = shipType.maxReverseSpeed;
-  shipConfig.accelerationPower = shipType.accelerationPower;
-  shipConfig.accelerationDecay = shipType.accelerationDecay;
-  shipConfig.friction = shipType.friction;
-  shipConfig.maxRudderAngle = shipType.maxRudderAngle;
-  shipConfig.rudderSpeed = shipType.rudderSpeed;
-  shipConfig.turnRate = shipType.turnRate;
-  shipConfig.pivotPoint = shipType.pivotPoint;
+  shipConfig.maxSpeed = shipType.physics.maxSpeed;
+  shipConfig.maxReverseSpeed = shipType.physics.maxReverseSpeed;
+  // Submerged speeds (if available, for submarines)
+  shipConfig.maxSubmergedSpeed = shipType.physics.maxSubmergedSpeed || 0;
+  shipConfig.maxSubmergedReverseSpeed = shipType.physics.maxSubmergedReverseSpeed || 0;
+  shipConfig.accelerationPower = shipType.physics.accelerationPower;
+  shipConfig.accelerationDecay = shipType.physics.accelerationDecay;
+  shipConfig.friction = shipType.physics.friction;
+  shipConfig.maxRudderAngle = shipType.physics.maxRudderAngle;
+  shipConfig.rudderSpeed = shipType.physics.rudderSpeed;
+  shipConfig.turnRate = shipType.physics.turnRate;
+  shipConfig.pivotPoint = shipType.physics.pivotPoint;
+  
+  // Reset submerged state when switching ships
+  ship.isSubmerged = false;
 }
 
-// Cycle through available ship types
+// Cycle through available ship types (across all categories)
 function cycleShipType() {
-  const shipTypeNames = Object.keys(shipTypes);
-  if (shipTypeNames.length === 0) return;
+  // Build a flat list of all ships with their categories
+  const allShips = [];
+  for (const category of Object.keys(shipTypes)) {
+    for (const shipName of Object.keys(shipTypes[category])) {
+      allShips.push({ category, name: shipName });
+    }
+  }
+  
+  if (allShips.length === 0) return;
   
   // Find current index
-  const currentIndex = shipTypeNames.indexOf(currentShipType);
+  const currentIndex = allShips.findIndex(
+    s => s.category === currentShipType.category && s.name === currentShipType.name
+  );
   
   // Move to next ship (wrap around)
-  const nextIndex = (currentIndex + 1) % shipTypeNames.length;
-  currentShipType = shipTypeNames[nextIndex];
+  const nextIndex = (currentIndex + 1) % allShips.length;
+  currentShipType = allShips[nextIndex];
   
   // Apply the new ship type
   applyShipType(currentShipType);
@@ -347,6 +434,86 @@ function drawSmokestacks(x, y, length, stackCount, stackRadius, rotation) {
     ctx.fill();
     ctx.stroke();
   }
+  
+  ctx.restore();
+}
+
+// Draw submarine hull (dark, cylindrical shape from above)
+function drawSubmarineHull(x, y, length, width, rotation, isSubmerged = false) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  
+  // Draw main hull (ellipse - more cylindrical than surface ships)
+  ctx.beginPath();
+  ctx.ellipse(0, 0, length / 2, width / 2, 0, 0, Math.PI * 2);
+  
+  if (isSubmerged) {
+    // When submerged: only semi-transparent outline
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; // Semi-transparent white
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // No fill when submerged
+  } else {
+    // When on surface: normal rendering
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Fill hull (dark gray/black submarine color)
+    ctx.fillStyle = '#2a2a2a'; // Dark gray
+    ctx.fill();
+  }
+  
+  ctx.restore();
+}
+
+// Draw conning tower (sail) for submarines - rendered as elongated cylinder
+function drawConningTower(x, y, length, width, conningTowerSize, rotation, isSubmerged = false) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  
+  // Conning tower is positioned forward on the submarine
+  // Tower length is proportional to conningTowerSize
+  const towerLength = length * 0.25; // About 1/4 of sub length
+  const towerWidth = conningTowerSize; // Use conningTowerSize directly for width
+  const towerX = length * 0.15; // Positioned forward
+  const towerY = 0; // Centered
+  
+  if (isSubmerged) {
+    // When submerged: don't draw conning tower (it's underwater)
+    ctx.restore();
+    return;
+  }
+  
+  // Draw conning tower as elongated cylinder (ellipse from top view)
+  ctx.fillStyle = '#1a1a1a'; // Even darker
+  ctx.beginPath();
+  ctx.ellipse(
+    towerX, 
+    towerY, 
+    towerLength / 2, // Semi-major axis (length)
+    towerWidth / 2,  // Semi-minor axis (width)
+    0, 
+    0, 
+    Math.PI * 2
+  );
+  ctx.fill();
+  
+  // Outline
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  
+  // Draw periscope (small circle on conning tower)
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(towerX, towerY, towerWidth * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
   
   ctx.restore();
 }
@@ -524,22 +691,30 @@ function updateShip(deltaTime) {
     ship.acceleration = 0;
   }
   
+  // Determine active speed limits (use submerged speeds if submerged)
+  const activeMaxSpeed = (ship.category === 'Submarines' && ship.isSubmerged && shipConfig.maxSubmergedSpeed > 0) 
+    ? shipConfig.maxSubmergedSpeed 
+    : shipConfig.maxSpeed;
+  const activeMaxReverseSpeed = (ship.category === 'Submarines' && ship.isSubmerged && shipConfig.maxSubmergedReverseSpeed > 0) 
+    ? shipConfig.maxSubmergedReverseSpeed 
+    : shipConfig.maxReverseSpeed;
+  
   // Apply acceleration to speed (only if we have coal or decelerating)
   if (ship.acceleration !== 0 && (currentCoal > 0 || ship.acceleration < 0)) {
     ship.speed += ship.acceleration;
     // Clamp speed to limits
-    if (ship.speed > shipConfig.maxSpeed) {
-      ship.speed = shipConfig.maxSpeed;
-    } else if (ship.speed < -shipConfig.maxReverseSpeed) {
-      ship.speed = -shipConfig.maxReverseSpeed;
+    if (ship.speed > activeMaxSpeed) {
+      ship.speed = activeMaxSpeed;
+    } else if (ship.speed < -activeMaxReverseSpeed) {
+      ship.speed = -activeMaxReverseSpeed;
     }
   }
   
   // Apply friction when no acceleration or when at speed limit or when out of coal
   if (ship.acceleration === 0 || 
       currentCoal <= 0 ||
-      (ship.acceleration > 0 && ship.speed >= shipConfig.maxSpeed) ||
-      (ship.acceleration < 0 && ship.speed <= -shipConfig.maxReverseSpeed)) {
+      (ship.acceleration > 0 && ship.speed >= activeMaxSpeed) ||
+      (ship.acceleration < 0 && ship.speed <= -activeMaxReverseSpeed)) {
     if (ship.speed > 0) {
       ship.speed = Math.max(0, ship.speed - shipConfig.friction);
     } else if (ship.speed < 0) {
@@ -569,7 +744,7 @@ function updateShip(deltaTime) {
   
   // Apply turning based on rudder and speed
   // Turning is more effective at higher speeds
-  const turnEffectiveness = Math.abs(ship.speed) / shipConfig.maxSpeed;
+  const turnEffectiveness = Math.abs(ship.speed) / activeMaxSpeed;
   const rotationDelta = ship.rudderAngle * shipConfig.turnRate * turnEffectiveness;
   
   // Calculate pivot point offset from ship center
@@ -610,7 +785,7 @@ function updateShip(deltaTime) {
   // Deplete coal only when moving, proportional to speed
   if (Math.abs(ship.speed) > 0) {
     // Coal depletion is directly proportional to speed
-    const speedFactor = Math.abs(ship.speed) / shipConfig.maxSpeed; // 0 to 1
+    const speedFactor = Math.abs(ship.speed) / activeMaxSpeed; // 0 to 1
     const coalDepletion = coalConfig.depletionRate * speedFactor;
     currentCoal = Math.max(0, currentCoal - coalDepletion);
   }
@@ -1184,6 +1359,11 @@ function drawGoal() {
 function checkCollisions() {
   if (gameOver || gameWon) return;
   
+  // Submarines don't collide when submerged
+  if (ship.category === 'Submarines' && ship.isSubmerged) {
+    return;
+  }
+  
   // Ship position in world space (camera position)
   const shipWorldX = camera.x;
   const shipWorldY = camera.y;
@@ -1359,6 +1539,7 @@ function restartGame() {
   ship.speed = 0;
   ship.acceleration = 0;
   ship.rudderAngle = 0;
+  ship.isSubmerged = false; // Reset submerged state
   
   // Reset start port and goal
   startPort.generated = false;
@@ -1664,33 +1845,70 @@ function drawMinimap() {
   const minimapLength = ship.length * minimapShipScale;
   const minimapWidth = ship.width * minimapShipScale;
   
-  // Draw ship hull outline (ellipse)
-  ctx.strokeStyle = '#ff0000';
-  ctx.lineWidth = minimapExpanded ? 2 : 1;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
-  ctx.stroke();
-  
-  // Draw simplified superstructure (small rectangle)
-  const structureLength = minimapLength * 0.7;
-  const structureWidth = minimapWidth * 0.5;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
-  ctx.strokeStyle = '#ff0000';
-  ctx.lineWidth = minimapExpanded ? 1.5 : 0.5;
-  ctx.strokeRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
-  
-  // Draw simplified smokestacks (small circles)
-  const stackRadius = minimapExpanded ? 1.5 : 0.8;
-  const stackSpacing = minimapLength * 0.15;
-  const totalStackWidth = (ship.stackCount - 1) * stackSpacing;
-  const startStackX = -totalStackWidth / 2;
-  
-  ctx.fillStyle = '#000000';
-  for (let i = 0; i < ship.stackCount; i++) {
+  // Check category and render accordingly
+  if (ship.category === 'Submarines') {
+    // Draw submarine hull outline (ellipse)
+    if (ship.isSubmerged) {
+      // When submerged: semi-transparent outline
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)'; // Semi-transparent red
+      ctx.lineWidth = minimapExpanded ? 2 : 1;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // No fill when submerged
+    } else {
+      // When on surface: normal rendering
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = minimapExpanded ? 2 : 1;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // Fill with dark gray
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fill();
+      
+      // Draw simplified conning tower (elongated cylinder/ellipse forward)
+      const towerLength = minimapLength * 0.25;
+      const towerWidth = ship.conningTowerSize * minimapShipScale;
+      const towerX = minimapLength * 0.15;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.ellipse(towerX, 0, towerLength / 2, towerWidth / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = minimapExpanded ? 1 : 0.5;
+      ctx.stroke();
+    }
+  } else {
+    // Draw surface ship hull outline (ellipse)
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = minimapExpanded ? 2 : 1;
     ctx.beginPath();
-    ctx.arc(startStackX + i * stackSpacing, 0, stackRadius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Draw simplified superstructure (small rectangle)
+    const structureLength = minimapLength * 0.7;
+    const structureWidth = minimapWidth * 0.5;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = minimapExpanded ? 1.5 : 0.5;
+    ctx.strokeRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+    
+    // Draw simplified smokestacks (small circles)
+    const stackRadius = minimapExpanded ? 1.5 : 0.8;
+    const stackSpacing = minimapLength * 0.15;
+    const totalStackWidth = (ship.stackCount - 1) * stackSpacing;
+    const startStackX = -totalStackWidth / 2;
+    
+    ctx.fillStyle = '#000000';
+    for (let i = 0; i < ship.stackCount; i++) {
+      ctx.beginPath();
+      ctx.arc(startStackX + i * stackSpacing, 0, stackRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   
   ctx.restore();
@@ -1727,21 +1945,39 @@ function drawShip() {
   ship.screenX = canvas.width / 2;
   ship.screenY = canvas.height / 2;
   
-  // Draw hull
-  drawShipHull(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
-  
-  // Draw top structure (white superstructure)
-  drawTopStructure(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
-  
-  // Draw smokestacks
-  drawSmokestacks(
-    ship.screenX,
-    ship.screenY,
-    ship.length,
-    ship.stackCount,
-    ship.stackRadius,
-    ship.rotation
-  );
+  // Check category and render accordingly
+  if (ship.category === 'Submarines') {
+    // Draw submarine hull (pass isSubmerged state)
+    drawSubmarineHull(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation, ship.isSubmerged);
+    
+    // Draw conning tower (sail) - rendered as elongated cylinder (only when on surface)
+    drawConningTower(
+      ship.screenX,
+      ship.screenY,
+      ship.length,
+      ship.width,
+      ship.conningTowerSize, // Use conningTowerSize property
+      ship.rotation,
+      ship.isSubmerged
+    );
+  } else {
+    // Draw surface ship (steamer)
+    // Draw hull
+    drawShipHull(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
+    
+    // Draw top structure (white superstructure)
+    drawTopStructure(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
+    
+    // Draw smokestacks
+    drawSmokestacks(
+      ship.screenX,
+      ship.screenY,
+      ship.length,
+      ship.stackCount,
+      ship.stackRadius,
+      ship.rotation
+    );
+  }
 }
 
 // Game loop
