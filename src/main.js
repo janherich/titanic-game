@@ -13,6 +13,13 @@ window.addEventListener('resize', resizeCanvas);
 
 // Keyboard input handling
 window.addEventListener('keydown', (e) => {
+  // Handle ship cycling with 'a' key
+  if (e.key === 'a' || e.key === 'A') {
+    cycleShipType();
+    e.preventDefault();
+    return;
+  }
+  
   if (keys.hasOwnProperty(e.key)) {
     keys[e.key] = true;
     e.preventDefault();
@@ -53,17 +60,96 @@ const keys = {
   ArrowRight: false
 };
 
-// Ship physics configuration
+// Ship types configuration - easy to add new ships here!
+// To add a new ship, simply add a new entry to this object with:
+// - Visual properties: length, width, stackCount, stackRadius
+// - Physics properties: maxSpeed, maxReverseSpeed, accelerationPower, accelerationDecay, 
+//   friction, maxRudderAngle, rudderSpeed, turnRate, pivotPoint
+const shipTypes = {
+  '4-Stack Steamer': {
+    // Visual properties
+    length: 200,
+    width: 60,
+    stackCount: 4,
+    stackRadius: 10,
+    // Physics properties
+    maxSpeed: 3.5,
+    maxReverseSpeed: 0.8,
+    accelerationPower: 0.03,
+    accelerationDecay: 0.08,
+    friction: 0.02,
+    maxRudderAngle: Math.PI / 6, // 30 degrees
+    rudderSpeed: 0.03,
+    turnRate: 0.02,
+    pivotPoint: 0.7
+  },
+  'SS Normandie': {
+    // Visual properties (bigger)
+    length: 280, // 40% longer
+    width: 60,
+    stackCount: 3, // Different number of stacks
+    stackRadius: 12, // Slightly larger stacks
+    // Physics properties (faster)
+    maxSpeed: 5.0, // Much faster
+    maxReverseSpeed: 1.2,
+    accelerationPower: 0.04, // Better acceleration
+    accelerationDecay: 0.08,
+    friction: 0.018, // Slightly less friction
+    maxRudderAngle: Math.PI / 6,
+    rudderSpeed: 0.035, // More responsive rudder
+    turnRate: 0.025, // Better turning
+    pivotPoint: 0.65 // Slightly different pivot
+  },
+  'SS United States': {
+    // Visual properties
+    length: 270, // Long and sleek
+    width: 50,   // Narrower for speed
+    stackCount: 2, // Only 2 stacks
+    stackRadius: 10, // Larger stacks
+    // Physics properties (fastest)
+    maxSpeed: 6.5, // Fastest ship
+    maxReverseSpeed: 1.5,
+    accelerationPower: 0.05, // Excellent acceleration
+    accelerationDecay: 0.08,
+    friction: 0.015, // Less friction for speed
+    maxRudderAngle: Math.PI / 6,
+    rudderSpeed: 0.04, // Very responsive rudder
+    turnRate: 0.03, // Excellent turning
+    pivotPoint: 0.6 // Forward pivot for agility
+  },
+  'Costa Concordia': {
+    // Visual properties
+    length: 320,
+    width: 90,
+    stackCount: 1,
+    stackRadius: 20,
+    // Physics properties
+    maxSpeed: 3.0,
+    maxReverseSpeed: 1.5,
+    accelerationPower: 0.02, // Excellent acceleration
+    accelerationDecay: 0.08,
+    friction: 0.025,
+    maxRudderAngle: Math.PI / 6,
+    rudderSpeed: 0.01,
+    turnRate: 0.01,
+    pivotPoint: 0.5
+  }
+};
+
+// Current ship type (can be changed to switch ships)
+let currentShipType = '4-Stack Steamer';
+
+// Ship physics configuration (will be set from shipTypes)
 const shipConfig = {
   maxSpeed: 3.5,
   maxReverseSpeed: 0.8,
-  accelerationPower: 0.03, // How much acceleration is applied when key is held
-  accelerationDecay: 0.08, // How fast acceleration returns to zero when released
-  friction: 0.02, // Natural deceleration (friction) when no acceleration
-  maxRudderAngle: Math.PI / 6, // 30 degrees
+  accelerationPower: 0.03,
+  accelerationDecay: 0.08,
+  friction: 0.02,
+  maxRudderAngle: Math.PI / 6,
   rudderSpeed: 0.03,
-  turnRate: 0.02, // How fast ship turns based on rudder
-  pivotPoint: 0.7 // 0.0 = bow, 0.5 = center, 1.0 = stern (0.4 = slightly forward of center)
+  turnRate: 0.02,
+  pivotPoint: 0.7
 };
 
 // Icebergs configuration
@@ -125,11 +211,59 @@ const ship = {
   speed: 0, // Current speed (positive = forward, negative = reverse)
   acceleration: 0, // Current acceleration (positive = forward, negative = reverse)
   rudderAngle: 0, // Current rudder angle (-maxRudderAngle to +maxRudderAngle)
+  // Visual properties (will be set from shipTypes)
   length: 200,
   width: 60,
   stackCount: 4,
   stackRadius: 10
 };
+
+// Function to apply a ship type to the ship and shipConfig
+function applyShipType(shipTypeName) {
+  const shipType = shipTypes[shipTypeName];
+  if (!shipType) {
+    console.warn(`Ship type "${shipTypeName}" not found, using default`);
+    return;
+  }
+  
+  // Apply visual properties to ship
+  ship.length = shipType.length;
+  ship.width = shipType.width;
+  ship.stackCount = shipType.stackCount;
+  ship.stackRadius = shipType.stackRadius;
+  
+  // Apply physics properties to shipConfig
+  shipConfig.maxSpeed = shipType.maxSpeed;
+  shipConfig.maxReverseSpeed = shipType.maxReverseSpeed;
+  shipConfig.accelerationPower = shipType.accelerationPower;
+  shipConfig.accelerationDecay = shipType.accelerationDecay;
+  shipConfig.friction = shipType.friction;
+  shipConfig.maxRudderAngle = shipType.maxRudderAngle;
+  shipConfig.rudderSpeed = shipType.rudderSpeed;
+  shipConfig.turnRate = shipType.turnRate;
+  shipConfig.pivotPoint = shipType.pivotPoint;
+}
+
+// Cycle through available ship types
+function cycleShipType() {
+  const shipTypeNames = Object.keys(shipTypes);
+  if (shipTypeNames.length === 0) return;
+  
+  // Find current index
+  const currentIndex = shipTypeNames.indexOf(currentShipType);
+  
+  // Move to next ship (wrap around)
+  const nextIndex = (currentIndex + 1) % shipTypeNames.length;
+  currentShipType = shipTypeNames[nextIndex];
+  
+  // Apply the new ship type
+  applyShipType(currentShipType);
+  
+  // Reset ship state when switching (optional - prevents weird behavior)
+  ship.speed = 0;
+  ship.acceleration = 0;
+  ship.rudderAngle = 0;
+}
 
 // Draw ship hull (oval shape from above)
 function drawShipHull(x, y, length, width, rotation) {
@@ -1217,6 +1351,9 @@ function restartGame() {
   keys.ArrowLeft = false;
   keys.ArrowRight = false;
   
+  // Apply current ship type (ensures ship properties are correct)
+  applyShipType(currentShipType);
+  
   // Reset ship state
   ship.rotation = -Math.PI / 2;
   ship.speed = 0;
@@ -1668,6 +1805,9 @@ function gameLoop(currentTime) {
   // Continue game loop
   requestAnimationFrame(gameLoop);
 }
+
+// Initialize ship type
+applyShipType(currentShipType);
 
 // Initialize start port and goal on first game start
 generateStartPort();
