@@ -161,6 +161,40 @@ const shipTypes = {
         pivotPoint: 0.6 // Forward pivot for agility
       }
     },
+    'Poseidon': {
+      visual: {
+        length: 350,
+        width: 78,
+        stackCount: 1,
+        stackRadius: 18,
+        style: {
+          hullProfile: 'modern',
+          hullColor: '#111a22',
+          deckColor: '#bd9362',
+          accentColor: '#b9363d',
+          funnelColor: '#b9363d',
+          funnelOffset: -0.13,
+          funnelBand: true,
+          superstructureColor: '#f4f6f5',
+          superstructureLength: 0.7,
+          superstructureWidth: 0.58,
+          lifeboatCount: 9,
+          poolDeck: true,
+          radarDomes: true
+        }
+      },
+      physics: {
+        maxSpeed: 4.4,
+        maxReverseSpeed: 1.1,
+        accelerationPower: 0.03,
+        accelerationDecay: 0.08,
+        friction: 0.02,
+        maxRudderAngle: Math.PI / 6,
+        rudderSpeed: 0.025,
+        turnRate: 0.017,
+        pivotPoint: 0.62
+      }
+    },
     'Costa Concordia': {
       visual: {
         length: 320,
@@ -411,9 +445,14 @@ function traceSurfaceHull(length, width, profile = 'classic') {
   const halfWidth = width / 2;
   const isCruiseShip = profile === 'cruise';
   const isStreamlined = profile === 'streamlined';
-  const bowShoulder = isStreamlined ? 0.22 : (isCruiseShip ? 0.3 : 0.26);
-  const sternX = isStreamlined ? -0.49 : -0.47;
-  const sternWidth = isCruiseShip ? 0.78 : (isStreamlined ? 0.52 : 0.64);
+  const isModernLiner = profile === 'modern';
+  const bowShoulder = isStreamlined
+    ? 0.22
+    : (isModernLiner ? 0.18 : (isCruiseShip ? 0.3 : 0.26));
+  const sternX = isStreamlined ? -0.49 : (isModernLiner ? -0.48 : -0.47);
+  const sternWidth = isCruiseShip
+    ? 0.78
+    : (isModernLiner ? 0.7 : (isStreamlined ? 0.52 : 0.64));
 
   ctx.beginPath();
   ctx.moveTo(length * 0.5, 0);
@@ -503,7 +542,9 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
   const superstructureColor = style.superstructureColor || '#f3f0e7';
   const structureLength = length * (style.superstructureLength || 0.6);
   const structureWidth = width * (style.superstructureWidth || 0.46);
-  const structureCenterX = hullProfile === 'cruise' ? -length * 0.035 : -length * 0.055;
+  const structureCenterX = hullProfile === 'cruise'
+    ? -length * 0.035
+    : (hullProfile === 'modern' ? -length * 0.025 : -length * 0.055);
 
   ctx.save();
   ctx.translate(x, y);
@@ -581,7 +622,9 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
   ctx.lineWidth = 1.1;
   ctx.stroke();
 
-  const upperLength = structureLength * (hullProfile === 'cruise' ? 0.78 : 0.66);
+  const upperLength = structureLength * (
+    hullProfile === 'cruise' || hullProfile === 'modern' ? 0.78 : 0.66
+  );
   const upperWidth = structureWidth * 0.62;
   const upperCenterX = structureCenterX + length * 0.035;
   traceRoundedRect(
@@ -595,6 +638,31 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
   ctx.fill();
   ctx.strokeStyle = '#cad1cf';
   ctx.stroke();
+
+  if (style.poolDeck) {
+    const poolLength = upperLength * 0.19;
+    const poolWidth = upperWidth * 0.38;
+    const poolX = upperCenterX + upperLength * 0.2;
+    traceRoundedRect(
+      poolX - poolLength / 2,
+      -poolWidth / 2,
+      poolLength,
+      poolWidth,
+      poolWidth * 0.3
+    );
+    ctx.fillStyle = '#4fa9c2';
+    ctx.fill();
+    ctx.strokeStyle = '#d9f3f6';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(poolX - poolLength * 0.32, -poolWidth * 0.12);
+    ctx.quadraticCurveTo(poolX, poolWidth * 0.18, poolX + poolLength * 0.32, -poolWidth * 0.12);
+    ctx.stroke();
+  }
 
   // Dark promenade strips and individual windows keep detail legible at game scale.
   ctx.strokeStyle = '#314953';
@@ -651,9 +719,10 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
   // Funnels are elliptical from above, with colored casings and dark exhaust openings.
   const funnelSpan = Math.min(length * 0.36, structureLength * 0.62);
   for (let i = 0; i < stackCount; i++) {
-    const funnelX = stackCount === 1
+    const baseFunnelX = stackCount === 1
       ? structureCenterX
       : structureCenterX - funnelSpan / 2 + i * (funnelSpan / (stackCount - 1));
+    const funnelX = baseFunnelX + length * (style.funnelOffset || 0);
     const funnelLength = stackRadius * (hullProfile === 'cruise' ? 1.05 : 1.3);
     const funnelWidth = stackRadius * (hullProfile === 'cruise' ? 0.72 : 0.82);
 
@@ -665,6 +734,22 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
+    if (style.funnelBand) {
+      ctx.beginPath();
+      ctx.ellipse(
+        funnelX,
+        0,
+        funnelLength * 0.74,
+        funnelWidth * 0.72,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(2, stackRadius * 0.2);
+      ctx.stroke();
+    }
+
     ctx.beginPath();
     ctx.ellipse(funnelX, 0, funnelLength * 0.53, funnelWidth * 0.5, 0, 0, Math.PI * 2);
     ctx.fillStyle = '#182026';
@@ -672,6 +757,21 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
     ctx.strokeStyle = accentColor;
     ctx.lineWidth = 1;
     ctx.stroke();
+  }
+
+  if (style.radarDomes) {
+    for (const domeX of [
+      upperCenterX - upperLength * 0.32,
+      upperCenterX + upperLength * 0.35
+    ]) {
+      ctx.beginPath();
+      ctx.arc(domeX, 0, Math.max(3, width * 0.055), 0, Math.PI * 2);
+      ctx.fillStyle = '#f9fbfa';
+      ctx.fill();
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
   }
 
   drawShipMast(length * 0.34, width, accentColor);
@@ -1917,8 +2017,8 @@ function drawUI() {
   // UI panel background
   const panelX = 20;
   const panelY = 20;
-  const panelWidth = 200;
-  const panelHeight = 110;
+  const panelWidth = 230;
+  const panelHeight = 138;
   
   ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
   ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
@@ -1933,20 +2033,21 @@ function drawUI() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   
-  // Speed display
-  ctx.fillText(`Speed: ${speedInKnots.toFixed(1)} knots`, panelX + 10, panelY + 15);
+  // Ship and speed display
+  ctx.fillText(`Ship: ${ship.name}`, panelX + 10, panelY + 14);
+  ctx.fillText(`Speed: ${speedInKnots.toFixed(1)} knots`, panelX + 10, panelY + 40);
   
   // Distance display
-  ctx.fillText(`Distance: ${distanceInNauticalMiles.toFixed(2)} nm`, panelX + 10, panelY + 40);
+  ctx.fillText(`Distance: ${distanceInNauticalMiles.toFixed(2)} nm`, panelX + 10, panelY + 66);
   
   // Coal indicator
   ctx.font = 'bold 14px Arial';
-  ctx.fillText('Coal:', panelX + 10, panelY + 70);
+  ctx.fillText('Coal:', panelX + 10, panelY + 94);
   
   // Coal bar background
   const barX = panelX + 10;
-  const barY = panelY + 90;
-  const barWidth = 180;
+  const barY = panelY + 116;
+  const barWidth = 210;
   const barHeight = 12;
   
   ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
