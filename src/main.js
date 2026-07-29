@@ -280,9 +280,9 @@ const icebergsConfig = {
   maxSize: 80,
   minPoints: 6, // Minimum points for irregular shape
   maxPoints: 12, // Maximum points for irregular shape
-  irregularity: 0.4, // How irregular the shape is (0.0 = circle, 1.0 = very irregular)
-  color: '#e8f4f8', // Light blue-white color
-  strokeColor: '#b8d4e0' // Slightly darker outline
+  irregularity: 0.28, // How irregular the floe edge is
+  color: '#edf7f7',
+  strokeColor: '#c4e4e9'
 };
 
 // World boundaries
@@ -923,152 +923,175 @@ function drawSubmarine(x, y, length, width, conningTowerSize, rotation, isSubmer
   ctx.restore();
 }
 
-// Draw waves (top-down perspective - simple curved lines with random breaks)
-function drawWaves() {
-  ctx.save();
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.globalAlpha = 0.6;
-  
-  const waveSpeed = 0.02;
-  
-  // Pseudo-random function for consistent breaks
-  // Use quantized coordinates to ensure stability
-  function shouldDraw(worldX, worldY, seed) {
-    // Use larger quantization step to prevent flickering when camera moves
-    // Align to a fixed grid that's independent of camera position
-    const gridSize = 20; // Larger grid for more stability
-    const quantizedX = Math.floor(worldX / gridSize) * gridSize;
-    const quantizedY = Math.floor(worldY / gridSize) * gridSize;
-    const hash = Math.sin(quantizedX * 0.1 + quantizedY * 0.1 + seed) * 10000;
-    return (hash - Math.floor(hash)) > 0.3; // 70% chance to draw
-  }
-  
-  // Calculate visible world bounds
+function hash01(a, b = 0, c = 0) {
+  const value = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453123;
+  return value - Math.floor(value);
+}
+
+// Layered ocean color stays tied to world coordinates so sailing feels like
+// moving through water instead of sliding a flat backdrop beneath the ship.
+function drawOcean() {
+  const baseGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  baseGradient.addColorStop(0, '#183b55');
+  baseGradient.addColorStop(0.48, '#214f68');
+  baseGradient.addColorStop(1, '#163950');
+  ctx.fillStyle = baseGradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const patchSize = 360;
   const screenCenterX = canvas.width / 2;
   const screenCenterY = canvas.height / 2;
-  
-  // Draw multiple flowing curved wave lines (horizontal)
-  // Use fixed world spacing for wave lines
-  const waveLineSpacing = 150; // World space spacing between wave lines
-  const visibleWorldHeight = canvas.height;
-  const visibleWorldWidth = canvas.width;
-  
-  // Find the first wave line that's visible
-  const firstVisibleLineY = Math.floor((camera.y - visibleWorldHeight / 2) / waveLineSpacing) * waveLineSpacing;
-  const lastVisibleLineY = camera.y + visibleWorldHeight / 2;
-  
-  for (let worldY = firstVisibleLineY; worldY <= lastVisibleLineY; worldY += waveLineSpacing) {
-    const lineIndex = Math.floor(worldY / waveLineSpacing);
-    const phase = (lineIndex * Math.PI) / 3;
-    let isDrawing = false;
-    
-    // Sample at fixed world-space intervals for stability
-    // Align to grid to ensure consistent sampling regardless of camera position
-    const sampleStep = 2; // World space sampling step
-    const gridSize = 20;
-    const worldStartX = Math.floor((camera.x - screenCenterX) / gridSize) * gridSize;
-    const worldEndX = camera.x + screenCenterX;
-    
-    for (let worldX = worldStartX; worldX <= worldEndX; worldX += sampleStep) {
-      // Calculate wave offset in world space (purely based on world coordinates)
-      const waveOffset = Math.sin((worldX * 0.01) + (worldY * 0.008) + (animationTime * waveSpeed) + phase) * 25;
-      const worldYWithWave = worldY + waveOffset;
-      
-      // Convert world coordinates to screen coordinates
+  const minPatchX = Math.floor((camera.x - screenCenterX) / patchSize) - 1;
+  const maxPatchX = Math.ceil((camera.x + screenCenterX) / patchSize) + 1;
+  const minPatchY = Math.floor((camera.y - screenCenterY) / patchSize) - 1;
+  const maxPatchY = Math.ceil((camera.y + screenCenterY) / patchSize) + 1;
+
+  ctx.save();
+  for (let patchX = minPatchX; patchX <= maxPatchX; patchX++) {
+    for (let patchY = minPatchY; patchY <= maxPatchY; patchY++) {
+      const tone = hash01(patchX, patchY, 3);
+      const worldX = patchX * patchSize + hash01(patchX, patchY, 7) * patchSize;
+      const worldY = patchY * patchSize + hash01(patchX, patchY, 11) * patchSize;
       const screenX = worldX - camera.x + screenCenterX;
-      const screenY = worldYWithWave - camera.y + screenCenterY;
-      
-      // Only draw if on screen
-      if (screenY >= -50 && screenY <= canvas.height + 50 && screenX >= -50 && screenX <= canvas.width + 50) {
-        const shouldContinue = shouldDraw(worldX, worldY, lineIndex * 1000);
-        
-        if (shouldContinue) {
-          if (!isDrawing) {
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            isDrawing = true;
-          } else {
-            ctx.lineTo(screenX, screenY);
-          }
-        } else {
-          if (isDrawing) {
-            ctx.stroke();
-            isDrawing = false;
-          }
-        }
-      } else {
-        // End line if it goes off screen
-        if (isDrawing) {
-          ctx.stroke();
-          isDrawing = false;
-        }
-      }
-    }
-    
-    if (isDrawing) {
-      ctx.stroke();
-    }
-  }
-  
-  // Draw vertical flowing waves
-  // Use fixed world spacing for wave lines
-  const firstVisibleLineX = Math.floor((camera.x - visibleWorldWidth / 2) / waveLineSpacing) * waveLineSpacing;
-  const lastVisibleLineX = camera.x + visibleWorldWidth / 2;
-  
-  for (let worldX = firstVisibleLineX; worldX <= lastVisibleLineX; worldX += waveLineSpacing) {
-    const lineIndex = Math.floor(worldX / waveLineSpacing);
-    const phase = (lineIndex * Math.PI) / 2.5;
-    let isDrawing = false;
-    
-    // Sample at fixed world-space intervals for stability
-    // Align to grid to ensure consistent sampling regardless of camera position
-    const sampleStep = 2; // World space sampling step
-    const gridSize = 20;
-    const worldStartY = Math.floor((camera.y - screenCenterY) / gridSize) * gridSize;
-    const worldEndY = camera.y + screenCenterY;
-    
-    for (let worldY = worldStartY; worldY <= worldEndY; worldY += sampleStep) {
-      // Calculate wave offset in world space (purely based on world coordinates)
-      const waveOffset = Math.sin((worldY * 0.01) + (worldX * 0.008) + (animationTime * waveSpeed * 0.8) + phase) * 25;
-      const worldXWithWave = worldX + waveOffset;
-      
-      // Convert world coordinates to screen coordinates
-      const screenX = worldXWithWave - camera.x + screenCenterX;
       const screenY = worldY - camera.y + screenCenterY;
-      
-      // Only draw if on screen
-      if (screenX >= -50 && screenX <= canvas.width + 50 && screenY >= -50 && screenY <= canvas.height + 50) {
-        const shouldContinue = shouldDraw(worldX, worldY, lineIndex * 2000);
-        
-        if (shouldContinue) {
-          if (!isDrawing) {
-            ctx.beginPath();
-            ctx.moveTo(screenX, screenY);
-            isDrawing = true;
-          } else {
-            ctx.lineTo(screenX, screenY);
-          }
-        } else {
-          if (isDrawing) {
-            ctx.stroke();
-            isDrawing = false;
-          }
-        }
-      } else {
-        // End line if it goes off screen
-        if (isDrawing) {
-          ctx.stroke();
-          isDrawing = false;
-        }
-      }
-    }
-    
-    if (isDrawing) {
-      ctx.stroke();
+      const radius = 150 + hash01(patchX, patchY, 17) * 120;
+      const patchGradient = ctx.createRadialGradient(
+        screenX,
+        screenY,
+        0,
+        screenX,
+        screenY,
+        radius
+      );
+      const patchColor = tone > 0.5
+        ? 'rgba(67, 132, 151, 0.09)'
+        : 'rgba(5, 34, 53, 0.11)';
+      patchGradient.addColorStop(0, patchColor);
+      patchGradient.addColorStop(1, 'rgba(14, 51, 70, 0)');
+      ctx.fillStyle = patchGradient;
+      ctx.fillRect(screenX - radius, screenY - radius, radius * 2, radius * 2);
     }
   }
-  
+  ctx.restore();
+}
+
+// Short, broken crests replace the old screen-spanning grid of sine waves.
+function drawWaves() {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  const spacingX = 145;
+  const spacingY = 92;
+  const minColumn = Math.floor((camera.x - screenCenterX) / spacingX) - 1;
+  const maxColumn = Math.ceil((camera.x + screenCenterX) / spacingX) + 1;
+  const minRow = Math.floor((camera.y - screenCenterY) / spacingY) - 1;
+  const maxRow = Math.ceil((camera.y + screenCenterY) / spacingY) + 1;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (let column = minColumn; column <= maxColumn; column++) {
+    for (let row = minRow; row <= maxRow; row++) {
+      const visibility = hash01(column, row, 21);
+      if (visibility < 0.2) continue;
+
+      const jitterX = (hash01(column, row, 22) - 0.5) * spacingX * 0.65;
+      const jitterY = (hash01(column, row, 23) - 0.5) * spacingY * 0.55;
+      const worldX = column * spacingX + jitterX;
+      const worldY = row * spacingY + jitterY;
+      const screenX = worldX - camera.x + screenCenterX;
+      const screenY = worldY - camera.y + screenCenterY;
+      const crestLength = 28 + hash01(column, row, 24) * 78;
+      const crestHeight = 3 + hash01(column, row, 25) * 7;
+      const rotation = -0.13 + (hash01(column, row, 26) - 0.5) * 0.16;
+      const pulse = Math.sin(animationTime * 0.018 + hash01(column, row, 27) * Math.PI * 2);
+
+      ctx.save();
+      ctx.translate(screenX, screenY + pulse * 1.8);
+      ctx.rotate(rotation);
+
+      ctx.strokeStyle = `rgba(174, 216, 226, ${0.16 + visibility * 0.13})`;
+      ctx.lineWidth = 1.1 + visibility * 0.65;
+      ctx.beginPath();
+      ctx.moveTo(-crestLength / 2, crestHeight * 0.25);
+      ctx.bezierCurveTo(
+        -crestLength * 0.2, -crestHeight,
+        crestLength * 0.18, -crestHeight,
+        crestLength / 2, crestHeight * 0.2
+      );
+      ctx.stroke();
+
+      if (visibility > 0.62) {
+        const highlightLength = crestLength * (0.35 + visibility * 0.22);
+        ctx.strokeStyle = `rgba(226, 242, 244, ${0.2 + visibility * 0.2})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-highlightLength / 2, -crestHeight * 0.25);
+        ctx.quadraticCurveTo(0, -crestHeight * 0.9, highlightLength / 2, -crestHeight * 0.18);
+        ctx.stroke();
+      }
+
+      if (visibility > 0.84) {
+        ctx.fillStyle = 'rgba(222, 241, 244, 0.28)';
+        for (let fleck = 0; fleck < 3; fleck++) {
+          const fleckX = (hash01(column, row, 30 + fleck) - 0.5) * crestLength * 0.8;
+          const fleckY = crestHeight * (0.4 + hash01(column, row, 40 + fleck) * 0.7);
+          ctx.beginPath();
+          ctx.arc(fleckX, fleckY, 0.8 + fleck * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawShipWake() {
+  if (Math.abs(ship.speed) < 0.15 || (ship.category === 'Submarines' && ship.isSubmerged)) {
+    return;
+  }
+
+  const wakeSpeedLimit = ship.speed >= 0
+    ? shipConfig.maxSpeed
+    : shipConfig.maxReverseSpeed;
+  const speedRatio = Math.min(1, Math.abs(ship.speed) / wakeSpeedLimit);
+  const wakeLength = ship.length * (0.5 + speedRatio * 0.65);
+  const sternX = -ship.length * 0.43;
+
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(ship.rotation);
+  ctx.scale(ship.speed >= 0 ? 1 : -1, 1);
+  ctx.lineCap = 'round';
+  ctx.setLineDash([9, 7]);
+  ctx.lineDashOffset = -animationTime * 0.45;
+
+  for (const side of [-1, 1]) {
+    ctx.strokeStyle = `rgba(221, 241, 244, ${0.12 + speedRatio * 0.3})`;
+    ctx.lineWidth = 1.4 + speedRatio;
+    ctx.beginPath();
+    ctx.moveTo(sternX, side * ship.width * 0.3);
+    ctx.bezierCurveTo(
+      sternX - wakeLength * 0.28,
+      side * ship.width * 0.45,
+      sternX - wakeLength * 0.7,
+      side * ship.width * (0.75 + speedRatio * 0.35),
+      sternX - wakeLength,
+      side * ship.width * (0.95 + speedRatio * 0.55)
+    );
+    ctx.stroke();
+  }
+
+  ctx.setLineDash([4, 9]);
+  ctx.strokeStyle = `rgba(199, 228, 234, ${0.1 + speedRatio * 0.2})`;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(sternX, 0);
+  ctx.quadraticCurveTo(sternX - wakeLength * 0.4, ship.width * 0.08, sternX - wakeLength * 0.75, 0);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1225,11 +1248,19 @@ function generateIcebergsForChunk(chunkX, chunkY) {
     const x = chunkWorldX + (Math.abs(hash1 - Math.floor(hash1)) * icebergGridSize);
     const y = chunkWorldY + (Math.abs(hash2 - Math.floor(hash2)) * icebergGridSize);
     
-    // Skip icebergs too close to starting position (safe zone)
-    const startSafeRadius = 300; // Safe radius around starting position
-    const distFromStart = Math.sqrt(x * x + y * y);
-    if (distFromStart < startSafeRadius) {
-      continue; // Skip this iceberg
+    // Keep navigable water around the departure harbor and destination island.
+    // The previous check measured from world origin instead of the actual port.
+    const distanceFromStartPort = startPort.generated
+      ? Math.hypot(x - startPort.x, y - startPort.y)
+      : Infinity;
+    const distanceFromGoal = goal.generated
+      ? Math.hypot(x - goal.x, y - goal.y)
+      : Infinity;
+    if (
+      distanceFromStartPort < goalConfig.radius * 2.5 ||
+      distanceFromGoal < goalConfig.radius * 1.65
+    ) {
+      continue;
     }
     
     // Pseudo-random size
@@ -1273,7 +1304,36 @@ function ensureIcebergsGenerated() {
   }
 }
 
-// Draw a single iceberg
+function getIceFloePoints(iceberg) {
+  const points = [];
+  const angleStep = (Math.PI * 2) / iceberg.pointCount;
+  const squash = 0.78 + hash01(iceberg.seed, 4) * 0.2;
+
+  for (let i = 0; i < iceberg.pointCount; i++) {
+    const angleJitter = (hash01(iceberg.seed, i, 5) - 0.5) * angleStep * 0.34;
+    const angle = i * angleStep + angleJitter;
+    const radiusVariation = 0.76 + hash01(iceberg.seed, i, 6) * 0.24;
+    const radius = iceberg.size * radiusVariation;
+    points.push({
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius * squash
+    });
+  }
+
+  return points;
+}
+
+function tracePolygon(points) {
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.closePath();
+}
+
+// Draw a floating ice floe with a submerged shelf, visible thickness, and
+// restrained surface facets. Collision geometry remains unchanged.
 function drawIceberg(iceberg) {
   const screenCenterX = canvas.width / 2;
   const screenCenterY = canvas.height / 2;
@@ -1290,38 +1350,96 @@ function drawIceberg(iceberg) {
   
   ctx.save();
   ctx.translate(screenX, screenY);
-  
-  // Generate irregular shape points
-  const points = [];
-  const angleStep = (Math.PI * 2) / iceberg.pointCount;
-  
-  for (let i = 0; i < iceberg.pointCount; i++) {
-    const angle = i * angleStep;
-    // Add irregularity using seeded random
-    const irregularityHash = Math.sin(iceberg.seed * 0.1 + angle) * 10000;
-    const irregularity = 1 + (Math.abs(irregularityHash - Math.floor(irregularityHash)) - 0.5) * 
-                          icebergsConfig.irregularity * 2;
-    const radius = iceberg.size * irregularity;
-    points.push({
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius
-    });
-  }
-  
-  // Draw iceberg shape
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-  ctx.closePath();
-  
-  // Fill and stroke
-  ctx.fillStyle = icebergsConfig.color;
+  ctx.rotate((hash01(iceberg.seed, 8) - 0.5) * 0.8);
+
+  const points = getIceFloePoints(iceberg);
+
+  // Pale turquoise below the edge suggests the larger submerged ice shelf.
+  ctx.save();
+  ctx.scale(1.1, 1.1);
+  tracePolygon(points);
+  ctx.fillStyle = 'rgba(104, 176, 194, 0.18)';
   ctx.fill();
+  ctx.strokeStyle = 'rgba(143, 205, 216, 0.28)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+
+  // The lower edge is offset toward the viewer to give the floe thickness.
+  ctx.save();
+  ctx.translate(0, Math.max(3, iceberg.size * 0.075));
+  tracePolygon(points);
+  ctx.fillStyle = '#9fc6d1';
+  ctx.fill();
+  ctx.strokeStyle = '#83b4c1';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  tracePolygon(points);
+  const iceGradient = ctx.createLinearGradient(
+    -iceberg.size * 0.55,
+    -iceberg.size * 0.65,
+    iceberg.size * 0.5,
+    iceberg.size * 0.65
+  );
+  iceGradient.addColorStop(0, '#fbffff');
+  iceGradient.addColorStop(0.48, icebergsConfig.color);
+  iceGradient.addColorStop(1, '#d4eaed');
+  ctx.fillStyle = iceGradient;
+  ctx.shadowColor = 'rgba(4, 35, 49, 0.22)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 4;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  // Broad triangular facets keep the surface dimensional without making it rocky.
+  ctx.save();
+  tracePolygon(points);
+  ctx.clip();
+  const facetCenter = {
+    x: (hash01(iceberg.seed, 12) - 0.5) * iceberg.size * 0.22,
+    y: (hash01(iceberg.seed, 13) - 0.5) * iceberg.size * 0.18
+  };
+  const facetColors = [
+    'rgba(159, 208, 217, 0.2)',
+    'rgba(255, 255, 255, 0.34)',
+    'rgba(121, 184, 199, 0.13)'
+  ];
+
+  for (let i = 0; i < points.length; i += 2) {
+    const nextIndex = (i + 2) % points.length;
+    ctx.beginPath();
+    ctx.moveTo(facetCenter.x, facetCenter.y);
+    ctx.lineTo(points[i].x, points[i].y);
+    ctx.lineTo(points[(i + 1) % points.length].x, points[(i + 1) % points.length].y);
+    ctx.lineTo(points[nextIndex].x, points[nextIndex].y);
+    ctx.closePath();
+    ctx.fillStyle = facetColors[(i / 2) % facetColors.length];
+    ctx.fill();
+  }
+  ctx.restore();
+
+  tracePolygon(points);
   ctx.strokeStyle = icebergsConfig.strokeColor;
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  // A few fine stress lines make larger floes feel naturally fractured.
+  if (iceberg.size > 44) {
+    ctx.strokeStyle = 'rgba(103, 162, 178, 0.35)';
+    ctx.lineWidth = 1;
+    for (let crack = 0; crack < Math.min(3, Math.floor(iceberg.size / 24)); crack++) {
+      const target = points[(crack * 3 + 1) % points.length];
+      const startX = facetCenter.x + (hash01(iceberg.seed, crack, 18) - 0.5) * iceberg.size * 0.12;
+      const startY = facetCenter.y + (hash01(iceberg.seed, crack, 19) - 0.5) * iceberg.size * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(target.x * 0.42, target.y * 0.42);
+      ctx.lineTo(target.x * 0.67, target.y * 0.65);
+      ctx.stroke();
+    }
+  }
   
   ctx.restore();
 }
@@ -1476,264 +1594,470 @@ function drawStartPort() {
 // worldX, worldY: world coordinates for seed generation (for consistent shape)
 // scale: scaling factor (1.0 for normal, smaller for minimap)
 // isMinimap: if true, draws simplified version
+function traceSmoothLoop(points) {
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  ctx.beginPath();
+  ctx.moveTo(
+    (lastPoint.x + firstPoint.x) / 2,
+    (lastPoint.y + firstPoint.y) / 2
+  );
+
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i];
+    const nextPoint = points[(i + 1) % points.length];
+    ctx.quadraticCurveTo(
+      point.x,
+      point.y,
+      (point.x + nextPoint.x) / 2,
+      (point.y + nextPoint.y) / 2
+    );
+  }
+  ctx.closePath();
+}
+
+function scaleLoopPoints(points, scaleX, scaleY = scaleX, offsetY = 0) {
+  return points.map(point => ({
+    x: point.x * scaleX,
+    y: point.y * scaleY + offsetY
+  }));
+}
+
+function createIslandShore(seed, islandSize, pointCount) {
+  const points = [];
+  const angleStep = (Math.PI * 2) / pointCount;
+  for (let i = 0; i < pointCount; i++) {
+    const angle = i * angleStep + (hash01(seed, i, 51) - 0.5) * angleStep * 0.38;
+    const radius = 0.84 + hash01(seed, i, 52) * 0.18;
+    points.push({
+      x: Math.cos(angle) * islandSize * 0.92 * radius,
+      y: Math.sin(angle) * islandSize * 0.72 * radius
+    });
+  }
+  return points;
+}
+
+function drawTopDownTree(x, y, radius, seed) {
+  ctx.fillStyle = 'rgba(19, 44, 30, 0.24)';
+  ctx.beginPath();
+  ctx.ellipse(x + radius * 0.35, y + radius * 0.45, radius * 0.9, radius * 0.62, 0.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#274f39';
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#3f7150';
+  ctx.beginPath();
+  ctx.arc(x - radius * 0.28, y - radius * 0.2, radius * 0.66, 0, Math.PI * 2);
+  ctx.arc(x + radius * 0.34, y - radius * 0.12, radius * 0.58, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#5f8758';
+  ctx.beginPath();
+  ctx.arc(
+    x - radius * 0.18,
+    y - radius * 0.35,
+    radius * (0.26 + hash01(seed, 1) * 0.12),
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  ctx.fillStyle = '#6b4c2e';
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(1.4, radius * 0.12), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawRoofedBuilding(x, y, width, height, rotation, colors) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+
+  ctx.fillStyle = 'rgba(26, 38, 33, 0.24)';
+  ctx.fillRect(-width / 2 + 5, -height / 2 + 6, width, height);
+
+  ctx.fillStyle = colors.wall;
+  ctx.strokeStyle = '#674c38';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(-width / 2, -height / 2, width, height);
+  ctx.strokeRect(-width / 2, -height / 2, width, height);
+
+  ctx.beginPath();
+  ctx.moveTo(-width / 2, -height / 2);
+  ctx.lineTo(width / 2, -height / 2);
+  ctx.lineTo(width / 2, 0);
+  ctx.lineTo(-width / 2, 0);
+  ctx.closePath();
+  ctx.fillStyle = colors.lightRoof;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(-width / 2, 0);
+  ctx.lineTo(width / 2, 0);
+  ctx.lineTo(width / 2, height / 2);
+  ctx.lineTo(-width / 2, height / 2);
+  ctx.closePath();
+  ctx.fillStyle = colors.darkRoof;
+  ctx.fill();
+
+  ctx.strokeStyle = '#6d4935';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-width / 2, 0);
+  ctx.lineTo(width / 2, 0);
+  ctx.stroke();
+
+  ctx.fillStyle = '#8fc2cf';
+  const windowCount = Math.max(2, Math.floor(width / 22));
+  for (let i = 0; i < windowCount; i++) {
+    const windowX = -width * 0.34 + i * (width * 0.68 / Math.max(1, windowCount - 1));
+    ctx.fillRect(windowX - 2.5, -height * 0.32, 5, 4);
+  }
+
+  ctx.restore();
+}
+
+function drawMooredBoat(x, y, length, width, color, side = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(side * 0.04);
+  ctx.fillStyle = 'rgba(6, 34, 48, 0.28)';
+  ctx.beginPath();
+  ctx.ellipse(3, 5, width * 0.7, length * 0.46, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(0, -length / 2);
+  ctx.quadraticCurveTo(width / 2, -length * 0.25, width / 2, length * 0.28);
+  ctx.quadraticCurveTo(0, length * 0.5, -width / 2, length * 0.28);
+  ctx.quadraticCurveTo(-width / 2, -length * 0.25, 0, -length / 2);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#e8efe9';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#dbc59f';
+  ctx.fillRect(-width * 0.28, -length * 0.05, width * 0.56, length * 0.18);
+  ctx.restore();
+}
+
 function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, worldY = 0, scale = 1.0, isMinimap = false) {
   ctx.save();
   ctx.translate(screenX, screenY);
   ctx.scale(scale, scale);
   
   const islandSize = goalConfig.radius;
-  
-  // Generate irregular/jagged island shape (similar to icebergs)
-  // Use island position as seed for consistent shape
-  const seed = (worldX * 1000 + worldY) * 0.1;
-  const pointCount = isMinimap ? 12 : 16;
-  const points = [];
-  const angleStep = (Math.PI * 2) / pointCount;
-  const baseRadiusX = islandSize * 0.9;
-  const baseRadiusY = islandSize * 0.7;
-  
-  for (let i = 0; i < pointCount; i++) {
-    const angle = i * angleStep;
-    // Add irregularity using seeded random (similar to icebergs)
-    const irregularityHash = Math.sin(seed + angle) * 10000;
-    const irregularity = 1 + (Math.abs(irregularityHash - Math.floor(irregularityHash)) - 0.5) * 0.4;
-    
-    // Create elliptical base with irregularity
-    const radiusX = baseRadiusX * irregularity;
-    const radiusY = baseRadiusY * irregularity;
-    
-    points.push({
-      x: Math.cos(angle) * radiusX,
-      y: Math.sin(angle) * radiusY
-    });
+  const seed = worldX * 0.071 + worldY * 0.113;
+  const pointCount = isMinimap ? 14 : 22;
+  const shorePoints = createIslandShore(seed, islandSize, pointCount);
+  const shelfPoints = scaleLoopPoints(shorePoints, 1.14, 1.13, 4);
+  const beachPoints = scaleLoopPoints(shorePoints, 1.03, 1.02, 1);
+  const landPoints = scaleLoopPoints(shorePoints, 0.9, 0.88, -4);
+  const minimapLineWidth = 1 / Math.max(scale, 0.001);
+
+  // A translucent reef shelf and a narrow sand rim soften the transition to water.
+  traceSmoothLoop(shelfPoints);
+  ctx.fillStyle = 'rgba(73, 158, 166, 0.2)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(140, 211, 207, 0.3)';
+  ctx.lineWidth = isMinimap ? minimapLineWidth * 0.6 : 2;
+  ctx.stroke();
+
+  traceSmoothLoop(beachPoints);
+  ctx.fillStyle = '#d8c58f';
+  ctx.shadowColor = 'rgba(6, 35, 43, 0.2)';
+  ctx.shadowBlur = isMinimap ? 0 : 9;
+  ctx.shadowOffsetY = isMinimap ? 0 : 5;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#b7aa78';
+  ctx.lineWidth = isMinimap ? minimapLineWidth * 0.75 : 1.6;
+  ctx.stroke();
+
+  traceSmoothLoop(landPoints);
+  const landGradient = ctx.createRadialGradient(
+    -islandSize * 0.18,
+    -islandSize * 0.22,
+    islandSize * 0.05,
+    0,
+    0,
+    islandSize
+  );
+  landGradient.addColorStop(0, '#78945a');
+  landGradient.addColorStop(0.55, '#547a4b');
+  landGradient.addColorStop(1, '#345f42');
+  ctx.fillStyle = landGradient;
+  ctx.fill();
+  ctx.strokeStyle = '#31553a';
+  ctx.lineWidth = isMinimap ? minimapLineWidth * 0.8 : 2;
+  ctx.stroke();
+
+  if (isMinimap) {
+    ctx.fillStyle = '#725038';
+    ctx.fillRect(-islandSize * 0.1, islandSize * 0.42, islandSize * 0.2, islandSize * 0.42);
+    ctx.fillStyle = accentColor;
+    ctx.beginPath();
+    ctx.arc(0, -islandSize * 0.48, minimapLineWidth * 1.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
   }
-  
-  // Draw jagged island shape
-  ctx.fillStyle = '#4a7c42'; // Green
+
+  // Soft terrain patches and a footpath break up the broad green interior.
+  ctx.save();
+  traceSmoothLoop(landPoints);
+  ctx.clip();
+  for (let patch = 0; patch < 7; patch++) {
+    const patchX = (hash01(seed, patch, 61) - 0.5) * islandSize * 1.2;
+    const patchY = (hash01(seed, patch, 62) - 0.5) * islandSize * 0.75;
+    const patchRadiusX = 24 + hash01(seed, patch, 63) * 55;
+    const patchRadiusY = 14 + hash01(seed, patch, 64) * 32;
+    ctx.fillStyle = patch % 2 === 0
+      ? 'rgba(36, 92, 54, 0.14)'
+      : 'rgba(164, 173, 94, 0.1)';
+    ctx.beginPath();
+    ctx.ellipse(patchX, patchY, patchRadiusX, patchRadiusY, hash01(seed, patch, 65), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = 'rgba(207, 192, 139, 0.42)';
+  ctx.lineWidth = 8;
   ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
+  ctx.moveTo(0, islandSize * 0.48);
+  ctx.bezierCurveTo(
+    -islandSize * 0.08,
+    islandSize * 0.18,
+    islandSize * 0.12,
+    -islandSize * 0.02,
+    0,
+    -islandSize * 0.43
+  );
+  ctx.stroke();
+  ctx.restore();
+
+  // Varied clustered canopies replace the evenly spaced circular trees.
+  for (let i = 0; i < 17; i++) {
+    const angle = hash01(seed, i, 71) * Math.PI * 2;
+    const distance = islandSize * (0.28 + hash01(seed, i, 72) * 0.38);
+    const treeX = Math.cos(angle) * distance;
+    const treeY = Math.sin(angle) * distance * 0.66 - islandSize * 0.02;
+    if (treeY > islandSize * 0.28 && Math.abs(treeX) < islandSize * 0.34) continue;
+    drawTopDownTree(
+      treeX,
+      treeY,
+      10 + hash01(seed, i, 73) * 8,
+      seed + i
+    );
   }
+  
+  // A narrow finger pier now projects naturally out from the southern shore.
+  const pierX = -islandSize * 0.08;
+  const pierY = islandSize * 0.34;
+  const pierWidth = islandSize * 0.18;
+  const pierLength = islandSize * 0.52;
+  const pierHeadWidth = islandSize * 0.5;
+  const pierHeadHeight = islandSize * 0.1;
+
+  ctx.fillStyle = 'rgba(7, 32, 42, 0.25)';
+  ctx.fillRect(pierX - pierWidth / 2 + 6, pierY + 7, pierWidth, pierLength);
+  ctx.fillRect(
+    pierX - pierHeadWidth / 2 + 6,
+    pierY + pierLength - pierHeadHeight + 7,
+    pierHeadWidth,
+    pierHeadHeight
+  );
+
+  ctx.fillStyle = '#765334';
+  ctx.strokeStyle = '#493724';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(pierX - pierWidth / 2, pierY, pierWidth, pierLength);
+  ctx.strokeRect(pierX - pierWidth / 2, pierY, pierWidth, pierLength);
+  ctx.fillRect(
+    pierX - pierHeadWidth / 2,
+    pierY + pierLength - pierHeadHeight,
+    pierHeadWidth,
+    pierHeadHeight
+  );
+  ctx.strokeRect(
+    pierX - pierHeadWidth / 2,
+    pierY + pierLength - pierHeadHeight,
+    pierHeadWidth,
+    pierHeadHeight
+  );
+
+  ctx.strokeStyle = 'rgba(55, 38, 24, 0.65)';
+  ctx.lineWidth = 0.8;
+  for (let plankY = pierY + 9; plankY < pierY + pierLength; plankY += 10) {
+    ctx.beginPath();
+    ctx.moveTo(pierX - pierWidth / 2, plankY);
+    ctx.lineTo(pierX + pierWidth / 2, plankY);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#352c23';
+  for (const postX of [pierX - pierWidth * 0.42, pierX + pierWidth * 0.42]) {
+    for (let postY = pierY + 12; postY < pierY + pierLength; postY += 32) {
+      ctx.beginPath();
+      ctx.arc(postX, postY, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawMooredBoat(
+    pierX - pierWidth * 0.95,
+    pierY + pierLength * 0.5,
+    48,
+    18,
+    '#b94b42',
+    -1
+  );
+  drawMooredBoat(
+    pierX + pierWidth * 1.05,
+    pierY + pierLength * 0.72,
+    39,
+    15,
+    '#d5a544',
+    1
+  );
+
+  // Compact loading crane and colored harbor bollards.
+  ctx.strokeStyle = '#c29a43';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(pierX, pierY + pierLength * 0.26);
+  ctx.lineTo(pierX, pierY + pierLength * 0.1);
+  ctx.lineTo(pierX + pierWidth * 0.7, pierY + pierLength * 0.16);
+  ctx.stroke();
+  ctx.strokeStyle = '#51432f';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pierX + pierWidth * 0.7, pierY + pierLength * 0.16);
+  ctx.lineTo(pierX + pierWidth * 0.7, pierY + pierLength * 0.28);
+  ctx.stroke();
+
+  ctx.fillStyle = accentColor;
+  for (const bollardX of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(
+      pierX + bollardX * pierHeadWidth * 0.42,
+      pierY + pierLength - pierHeadHeight * 0.5,
+      3,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+  
+  // Top-down pitched roofs sit naturally in the scene and cast soft shadows.
+  drawRoofedBuilding(
+    -islandSize * 0.34,
+    -islandSize * 0.02,
+    islandSize * 0.34,
+    islandSize * 0.2,
+    -0.08,
+    {
+      wall: '#c49a6c',
+      lightRoof: '#a85d3c',
+      darkRoof: '#7c432f'
+    }
+  );
+  drawRoofedBuilding(
+    islandSize * 0.03,
+    -islandSize * 0.12,
+    islandSize * 0.23,
+    islandSize * 0.19,
+    0.06,
+    {
+      wall: '#ddc69b',
+      lightRoof: '#b56a43',
+      darkRoof: '#854b34'
+    }
+  );
+  drawRoofedBuilding(
+    islandSize * 0.35,
+    -islandSize * 0.03,
+    islandSize * 0.27,
+    islandSize * 0.17,
+    -0.04,
+    {
+      wall: '#bca57e',
+      lightRoof: '#8d5941',
+      darkRoof: '#684130'
+    }
+  );
+
+  // Cargo and nets cluster near the shore end of the pier.
+  for (let crate = 0; crate < 5; crate++) {
+    const crateX = pierX - islandSize * 0.16 + (crate % 3) * 16;
+    const crateY = pierY - 15 - Math.floor(crate / 3) * 15;
+    ctx.fillStyle = crate % 2 === 0 ? '#9b6b3c' : '#bb8650';
+    ctx.fillRect(crateX, crateY, 12, 11);
+    ctx.strokeStyle = '#68482f';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(crateX, crateY, 12, 11);
+  }
+
+  // The lighthouse is viewed from above: concentric tower rings and a sweeping beam.
+  const lighthouseX = islandSize * 0.08;
+  const lighthouseY = -islandSize * 0.54;
+  const beamRotation = animationTime * 0.012;
+  const lightPulse = 0.5 + Math.sin(animationTime * 0.08) * 0.15;
+
+  ctx.save();
+  ctx.translate(lighthouseX, lighthouseY);
+  ctx.rotate(beamRotation);
+  const beamGradient = ctx.createLinearGradient(0, 0, islandSize * 0.48, 0);
+  beamGradient.addColorStop(0, `rgba(255, 244, 184, ${0.24 + lightPulse * 0.18})`);
+  beamGradient.addColorStop(1, 'rgba(255, 244, 184, 0)');
+  ctx.fillStyle = beamGradient;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(islandSize * 0.52, -islandSize * 0.1);
+  ctx.lineTo(islandSize * 0.52, islandSize * 0.1);
   ctx.closePath();
   ctx.fill();
-  
-  // Island outline
-  ctx.strokeStyle = '#3a6b32';
-  ctx.lineWidth = isMinimap ? (scale > 0.1 ? 1.5 : 0.5) : 3;
+  ctx.restore();
+
+  const beaconGlow = ctx.createRadialGradient(
+    lighthouseX,
+    lighthouseY,
+    0,
+    lighthouseX,
+    lighthouseY,
+    islandSize * 0.12
+  );
+  beaconGlow.addColorStop(0, `rgba(255, 244, 190, ${0.35 + lightPulse * 0.25})`);
+  beaconGlow.addColorStop(1, 'rgba(255, 244, 190, 0)');
+  ctx.fillStyle = beaconGlow;
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, islandSize * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(31, 42, 39, 0.25)';
+  ctx.beginPath();
+  ctx.arc(lighthouseX + 5, lighthouseY + 6, 17, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f4f1df';
+  ctx.strokeStyle = '#b7b6aa';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, 15, 0, Math.PI * 2);
+  ctx.fill();
   ctx.stroke();
-  
-  // Draw beach/sand area (only if not minimap or if minimap is expanded)
-  if (!isMinimap || scale > 0.1) {
-    ctx.fillStyle = '#D2B48C';
-    ctx.beginPath();
-    ctx.ellipse(0, islandSize * 0.5, islandSize * 0.7, islandSize * 0.15, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  
-  // Draw trees/vegetation on island (more detailed, skip for small minimap)
-  if (!isMinimap) {
-    ctx.fillStyle = '#2d5016'; // Dark green for tree trunks
-    for (let i = 0; i < 8; i++) {
-      const angle = (i * Math.PI * 2) / 8;
-      const dist = islandSize * (0.3 + (i % 3) * 0.15);
-      const x = Math.cos(angle) * dist;
-      const y = Math.sin(angle) * dist;
-      
-      // Tree trunk
-      ctx.fillRect(x - 3, y, 6, 12);
-      
-      // Tree foliage
-      ctx.fillStyle = '#3a7c42';
-      ctx.beginPath();
-      ctx.arc(x, y - 5, 15, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#2d5016'; // Reset for next trunk
-    }
-  } else if (scale > 0.1) {
-    // Simplified trees for expanded minimap
-    ctx.fillStyle = '#3a7c42';
-    for (let i = 0; i < 4; i++) {
-      const angle = (i * Math.PI * 2) / 4;
-      const dist = islandSize * 0.4;
-      const treeX = Math.cos(angle) * dist;
-      const treeY = Math.sin(angle) * dist;
-      ctx.beginPath();
-      ctx.arc(treeX, treeY, 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  
-  // Draw dock/pier (extending from island - more detailed, skip for small minimap)
-  if (!isMinimap || scale > 0.1) {
-    ctx.fillStyle = '#654321'; // Brown wood
-    const dockWidth = islandSize * 0.7;
-    const dockHeight = islandSize * 0.25;
-    ctx.fillRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
-    ctx.strokeStyle = '#543210';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-dockWidth / 2, islandSize * 0.45, dockWidth, dockHeight);
-    
-    // Draw dock planks (wooden planks detail) - only for full detail
-    if (!isMinimap) {
-      ctx.strokeStyle = '#543210';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 6; i++) {
-        const x = -dockWidth / 2 + (i * dockWidth / 6);
-        ctx.beginPath();
-        ctx.moveTo(x, islandSize * 0.45);
-        ctx.lineTo(x, islandSize * 0.45 + dockHeight);
-        ctx.stroke();
-      }
-      
-      // Draw dock posts (more posts)
-      ctx.fillStyle = '#4a3428';
-      for (let i = -2; i <= 2; i++) {
-        ctx.fillRect(-dockWidth / 2 + (i + 2) * (dockWidth / 5) - 2, islandSize * 0.45, 4, dockHeight);
-      }
-    }
-  } else {
-    // Simplified dock for small minimap
-    ctx.fillStyle = '#654321';
-    const dockWidth = islandSize * 0.6;
-    const dockHeight = islandSize * 0.15;
-    ctx.fillRect(-dockWidth / 2, islandSize * 0.4, dockWidth, dockHeight);
-  }
-  
-  // Draw small boats at dock (only for full detail)
-  if (!isMinimap) {
-    // Boat 1
-    ctx.fillStyle = '#8B6F47';
-    ctx.fillRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-islandSize * 0.25, islandSize * 0.5, islandSize * 0.15, islandSize * 0.08);
-    // Boat mast
-    ctx.fillStyle = '#654321';
-    ctx.fillRect(-islandSize * 0.175, islandSize * 0.5, 2, -islandSize * 0.1);
-    
-    // Boat 2
-    ctx.fillStyle = '#8B6F47';
-    ctx.fillRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
-    ctx.strokeStyle = '#654321';
-    ctx.strokeRect(islandSize * 0.1, islandSize * 0.52, islandSize * 0.12, islandSize * 0.06);
-  }
-  
-  // Draw port buildings (more buildings, only for full detail)
-  if (!isMinimap) {
-    // Building 1 (left - warehouse)
-    ctx.fillStyle = '#d4a574'; // Light brown/tan
-    ctx.fillRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
-    ctx.strokeStyle = '#8B6F47';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-islandSize * 0.6, -islandSize * 0.2, islandSize * 0.3, islandSize * 0.35);
-    
-    // Building 1 roof
-    ctx.fillStyle = '#8B4513';
-    ctx.beginPath();
-    ctx.moveTo(-islandSize * 0.6, -islandSize * 0.2);
-    ctx.lineTo(-islandSize * 0.45, -islandSize * 0.35);
-    ctx.lineTo(-islandSize * 0.3, -islandSize * 0.2);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Building 1 windows
-    ctx.fillStyle = '#4a90e2';
-    ctx.fillRect(-islandSize * 0.55, -islandSize * 0.1, 8, 10);
-    ctx.fillRect(-islandSize * 0.45, -islandSize * 0.1, 8, 10);
-    ctx.fillRect(-islandSize * 0.35, -islandSize * 0.1, 8, 10);
-    
-    // Building 2 (center - office)
-    ctx.fillStyle = '#e8d5b7';
-    ctx.fillRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
-    ctx.strokeStyle = '#8B6F47';
-    ctx.strokeRect(-islandSize * 0.15, -islandSize * 0.15, islandSize * 0.3, islandSize * 0.3);
-    
-    // Building 2 roof
-    ctx.fillStyle = '#8B4513';
-    ctx.beginPath();
-    ctx.moveTo(-islandSize * 0.15, -islandSize * 0.15);
-    ctx.lineTo(0, -islandSize * 0.3);
-    ctx.lineTo(islandSize * 0.15, -islandSize * 0.15);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Building 2 door
-    ctx.fillStyle = '#654321';
-    ctx.fillRect(-islandSize * 0.05, 0, islandSize * 0.1, islandSize * 0.15);
-    
-    // Building 2 windows
-    ctx.fillStyle = '#4a90e2';
-    ctx.fillRect(-islandSize * 0.1, -islandSize * 0.05, 8, 8);
-    ctx.fillRect(islandSize * 0.02, -islandSize * 0.05, 8, 8);
-    
-    // Building 3 (right - storage)
-    ctx.fillStyle = '#c9a876';
-    ctx.fillRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
-    ctx.strokeStyle = '#8B6F47';
-    ctx.strokeRect(islandSize * 0.3, -islandSize * 0.25, islandSize * 0.28, islandSize * 0.28);
-    
-    // Building 3 roof
-    ctx.fillStyle = '#8B4513';
-    ctx.beginPath();
-    ctx.moveTo(islandSize * 0.3, -islandSize * 0.25);
-    ctx.lineTo(islandSize * 0.44, -islandSize * 0.38);
-    ctx.lineTo(islandSize * 0.58, -islandSize * 0.25);
-    ctx.closePath();
-    ctx.fill();
-  }
-  
-  // Draw lighthouse (taller and more detailed)
-  const lighthouseX = 0;
-  const lighthouseY = -islandSize * 0.6;
-  
-  if (!isMinimap) {
-    // Lighthouse base
-    ctx.fillStyle = '#f5f5f5';
-    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
-    ctx.strokeStyle = '#cccccc';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(lighthouseX - islandSize * 0.12, lighthouseY, islandSize * 0.24, islandSize * 0.4);
-    
-    // Lighthouse stripes (red and white)
-    ctx.fillStyle = '#d32f2f';
-    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.1, islandSize * 0.24, islandSize * 0.08);
-    ctx.fillRect(lighthouseX - islandSize * 0.12, lighthouseY + islandSize * 0.25, islandSize * 0.24, islandSize * 0.08);
-    
-    // Lighthouse top (red dome)
-    ctx.fillStyle = '#d32f2f';
-    ctx.beginPath();
-    ctx.arc(lighthouseX, lighthouseY, islandSize * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Lighthouse light (pulsing)
-    const lightPulse = Math.sin(animationTime * 0.2) * 0.4 + 0.6;
-    ctx.fillStyle = `rgba(255, 255, 200, ${lightPulse})`;
-    ctx.beginPath();
-    ctx.arc(lighthouseX, lighthouseY, islandSize * 0.18, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    // Simplified lighthouse for minimap
-    ctx.fillStyle = '#d32f2f';
-    ctx.beginPath();
-    ctx.arc(lighthouseX, lighthouseY, scale > 0.1 ? 2 : 1, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  
-  // Draw crane/loading equipment (only for full detail)
-  if (!isMinimap) {
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-islandSize * 0.4, islandSize * 0.2);
-    ctx.lineTo(-islandSize * 0.4, islandSize * 0.35);
-    ctx.lineTo(-islandSize * 0.2, islandSize * 0.35);
-    ctx.stroke();
-    
-    // Crane hook
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(-islandSize * 0.22, islandSize * 0.33, 4, 8);
-  }
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, 10, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#fff4b8';
+  ctx.beginPath();
+  ctx.arc(lighthouseX, lighthouseY, 4.5, 0, Math.PI * 2);
+  ctx.fill();
   
   ctx.restore();
 }
@@ -2407,12 +2731,14 @@ function gameLoop(currentTime) {
     checkGoalReached();
   }
 
-  // Clear canvas (lighter ocean blue)
-  ctx.fillStyle = '#2a4a6a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Draw layered ocean color and animated surface detail.
+  drawOcean();
 
   // Draw waves
   drawWaves();
+
+  // Draw the ship wake below world obstacles and the vessel itself.
+  drawShipWake();
 
   // Draw icebergs
   drawIcebergs();
