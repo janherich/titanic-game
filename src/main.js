@@ -1500,10 +1500,12 @@ function generateStartPort() {
   const minDistance = goalConfig.radius * 1.5; // Outside the island
   const maxDistance = goalConfig.radius * 2.2; // Not too far
   const distance = minDistance + Math.random() * (maxDistance - minDistance);
-  const angle = Math.random() * Math.PI * 2; // Random direction
-  
-  camera.x = startPort.x + Math.cos(angle) * distance;
-  camera.y = startPort.y + Math.sin(angle) * distance;
+  const portRotation = getIslandPortRotation(startPort.x, startPort.y);
+  const approachAngle = Math.PI / 2 + portRotation;
+
+  camera.x = startPort.x + Math.cos(approachAngle) * distance;
+  camera.y = startPort.y + Math.sin(approachAngle) * distance;
+  ship.rotation = approachAngle + Math.PI;
 }
 
 // Generate goal on edge of world (different edge from start port)
@@ -1587,7 +1589,7 @@ function drawStartPort() {
   }
   
   // Draw the same island design as goal (reuse the drawing code)
-  drawIsland(portScreenX, portScreenY, '#6B8E23', startPort.x, startPort.y, 1.0, false);
+  drawIsland(portScreenX, portScreenY, '#6B8E23', startPort.x, startPort.y, 1.0, false, 'DEPARTURE');
 }
 
 // Draw island (reusable function for both start port and goal, and minimap)
@@ -1746,10 +1748,77 @@ function drawMooredBoat(x, y, length, width, color, side = 1) {
   ctx.restore();
 }
 
-function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, worldY = 0, scale = 1.0, isMinimap = false) {
+// Turn each harbor toward open water, away from the nearest world edge. This
+// keeps the approach looking intentional regardless of where islands spawn.
+function getIslandPortRotation(worldX, worldY) {
+  const distances = [
+    { distance: worldY, rotation: 0 },
+    { distance: worldConfig.width - worldX, rotation: Math.PI / 2 },
+    { distance: worldConfig.height - worldY, rotation: Math.PI },
+    { distance: worldX, rotation: -Math.PI / 2 }
+  ];
+
+  return distances.reduce((nearest, current) => (
+    current.distance < nearest.distance ? current : nearest
+  )).rotation;
+}
+
+function drawHarborSign(x, y, label, accentColor) {
+  const signWidth = 116;
+  const signHeight = 24;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  ctx.fillStyle = 'rgba(22, 31, 31, 0.28)';
+  ctx.fillRect(-signWidth / 2 + 4, -signHeight / 2 + 5, signWidth, signHeight);
+
+  ctx.fillStyle = '#f1ead5';
+  ctx.strokeStyle = '#624931';
+  ctx.lineWidth = 2;
+  ctx.fillRect(-signWidth / 2, -signHeight / 2, signWidth, signHeight);
+  ctx.strokeRect(-signWidth / 2, -signHeight / 2, signWidth, signHeight);
+
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(-signWidth / 2 + 4, -signHeight / 2 + 4, 5, signHeight - 8);
+  ctx.fillRect(signWidth / 2 - 9, -signHeight / 2 + 4, 5, signHeight - 8);
+
+  ctx.fillStyle = '#273b3d';
+  ctx.font = 'bold 11px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, 0, 1);
+  ctx.restore();
+}
+
+function drawHarborBeacon(x, y, accentColor) {
+  const pulse = 0.5 + Math.sin(animationTime * 0.08) * 0.15;
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, 18);
+  glow.addColorStop(0, `rgba(255, 241, 157, ${0.35 + pulse * 0.2})`);
+  glow.addColorStop(1, 'rgba(255, 241, 157, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#e8dfc2';
+  ctx.strokeStyle = '#4d4233';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, worldY = 0, scale = 1.0, isMinimap = false, portLabel = 'PORT') {
   ctx.save();
   ctx.translate(screenX, screenY);
   ctx.scale(scale, scale);
+  ctx.rotate(getIslandPortRotation(worldX, worldY));
   
   const islandSize = goalConfig.radius;
   const seed = worldX * 0.071 + worldY * 0.113;
@@ -1863,6 +1932,49 @@ function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, world
   const pierHeadWidth = islandSize * 0.5;
   const pierHeadHeight = islandSize * 0.1;
 
+  // A protected turning basin makes the end of the pier read as a real harbor
+  // instead of a wooden path laid over the island.
+  ctx.fillStyle = 'rgba(8, 54, 67, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(
+    pierX,
+    pierY + pierLength + islandSize * 0.035,
+    pierHeadWidth * 0.82,
+    islandSize * 0.115,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.fillStyle = 'rgba(78, 166, 177, 0.24)';
+  ctx.beginPath();
+  ctx.ellipse(
+    pierX,
+    pierY + pierLength + islandSize * 0.03,
+    pierHeadWidth * 0.58,
+    islandSize * 0.065,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(182, 235, 230, 0.34)';
+  ctx.lineWidth = 1.2;
+  for (let ripple = 0; ripple < 3; ripple++) {
+    ctx.beginPath();
+    ctx.ellipse(
+      pierX,
+      pierY + pierLength + islandSize * (0.005 + ripple * 0.035),
+      pierHeadWidth * (0.3 + ripple * 0.12),
+      islandSize * (0.018 + ripple * 0.006),
+      0,
+      0,
+      Math.PI * 2
+    );
+    ctx.stroke();
+  }
+
   ctx.fillStyle = 'rgba(7, 32, 42, 0.25)';
   ctx.fillRect(pierX - pierWidth / 2 + 6, pierY + 7, pierWidth, pierLength);
   ctx.fillRect(
@@ -1952,6 +2064,17 @@ function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, world
     );
     ctx.fill();
   }
+
+  // Amber harbor lights and tall mooring posts give the player a readable
+  // visual destination at both ends of the route.
+  for (const postX of [
+    pierX - pierHeadWidth * 0.42,
+    pierX + pierHeadWidth * 0.42
+  ]) {
+    ctx.fillStyle = '#40372a';
+    ctx.fillRect(postX - 2, pierY + pierLength - pierHeadHeight - 9, 4, 17);
+    drawHarborBeacon(postX, pierY + pierLength - pierHeadHeight - 12, accentColor);
+  }
   
   // Top-down pitched roofs sit naturally in the scene and cast soft shadows.
   drawRoofedBuilding(
@@ -2001,6 +2124,13 @@ function drawIsland(screenX, screenY, accentColor = '#4caf50', worldX = 0, world
     ctx.lineWidth = 0.8;
     ctx.strokeRect(crateX, crateY, 12, 11);
   }
+
+  drawHarborSign(
+    pierX - islandSize * 0.26,
+    pierY - islandSize * 0.035,
+    portLabel,
+    accentColor
+  );
 
   // The lighthouse is viewed from above: concentric tower rings and a sweeping beam.
   const lighthouseX = islandSize * 0.08;
@@ -2081,7 +2211,7 @@ function drawGoal() {
   }
   
   // Draw the island using the reusable function
-  drawIsland(goalScreenX, goalScreenY, '#4caf50', goal.x, goal.y, 1.0, false);
+  drawIsland(goalScreenX, goalScreenY, '#4caf50', goal.x, goal.y, 1.0, false, 'ARRIVAL');
 }
 
 // Check collision between ship and icebergs
