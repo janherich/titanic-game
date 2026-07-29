@@ -76,7 +76,18 @@ const shipTypes = {
         length: 200,
         width: 60,
         stackCount: 4,
-        stackRadius: 10
+        stackRadius: 10,
+        style: {
+          hullProfile: 'classic',
+          hullColor: '#17222c',
+          deckColor: '#b78351',
+          accentColor: '#d7b46a',
+          funnelColor: '#d39a43',
+          superstructureColor: '#f3f0e7',
+          superstructureLength: 0.58,
+          superstructureWidth: 0.44,
+          lifeboatCount: 5
+        }
       },
       physics: {
         maxSpeed: 3.5,
@@ -95,7 +106,18 @@ const shipTypes = {
         length: 280, // 40% longer
         width: 60,
         stackCount: 3, // Different number of stacks
-        stackRadius: 12 // Slightly larger stacks
+        stackRadius: 12, // Slightly larger stacks
+        style: {
+          hullProfile: 'streamlined',
+          hullColor: '#18232b',
+          deckColor: '#c39768',
+          accentColor: '#d95247',
+          funnelColor: '#c84b42',
+          superstructureColor: '#f4f1e9',
+          superstructureLength: 0.63,
+          superstructureWidth: 0.46,
+          lifeboatCount: 7
+        }
       },
       physics: {
         maxSpeed: 5.0, // Much faster
@@ -114,7 +136,18 @@ const shipTypes = {
         length: 270, // Long and sleek
         width: 50,   // Narrower for speed
         stackCount: 2, // Only 2 stacks
-        stackRadius: 10 // Larger stacks
+        stackRadius: 10, // Larger stacks
+        style: {
+          hullProfile: 'streamlined',
+          hullColor: '#162736',
+          deckColor: '#a6764e',
+          accentColor: '#e14f4a',
+          funnelColor: '#d9433f',
+          superstructureColor: '#f5f6f3',
+          superstructureLength: 0.6,
+          superstructureWidth: 0.48,
+          lifeboatCount: 6
+        }
       },
       physics: {
         maxSpeed: 6.5, // Fastest ship
@@ -133,7 +166,18 @@ const shipTypes = {
         length: 320,
         width: 90,
         stackCount: 1,
-        stackRadius: 20
+        stackRadius: 20,
+        style: {
+          hullProfile: 'cruise',
+          hullColor: '#dfe6e8',
+          deckColor: '#bca581',
+          accentColor: '#277aa2',
+          funnelColor: '#f1c847',
+          superstructureColor: '#f8faf9',
+          superstructureLength: 0.72,
+          superstructureWidth: 0.66,
+          lifeboatCount: 8
+        }
       },
       physics: {
         maxSpeed: 3.0,
@@ -153,7 +197,12 @@ const shipTypes = {
       visual: {
         length: 220, // Typical Type VII length
         width: 50,  // Narrower than surface ships
-        conningTowerSize: 12 // Size of conning tower (rendered as elongated cylinder)
+        conningTowerSize: 12, // Size of conning tower (rendered as elongated cylinder)
+        style: {
+          hullColor: '#202b30',
+          deckColor: '#354247',
+          accentColor: '#849398'
+        }
       },
       physics: {
         maxSpeed: 4.5, // Surface speed
@@ -256,6 +305,8 @@ const ship = {
   stackRadius: 10,
   conningTowerSize: 0, // For submarines only
   category: 'Steamers', // Current ship category
+  name: '4-Stack Steamer',
+  visualStyle: {},
   isSubmerged: false // For submarines: true when submerged, false when on surface
 };
 
@@ -286,6 +337,8 @@ function applyShipType(shipTypeInfo) {
   
   // Store category for rendering decisions
   ship.category = category;
+  ship.name = name;
+  ship.visualStyle = shipType.visual.style || {};
   
   // Apply visual properties to ship
   ship.length = shipType.visual.length;
@@ -352,169 +405,421 @@ function cycleShipType() {
   ship.rudderAngle = 0;
 }
 
-// Draw ship hull (oval shape from above)
-function drawShipHull(x, y, length, width, rotation) {
+// Trace the top-down outline used by both the main view and the minimap.
+// The pointed bow faces positive X before the ship rotation is applied.
+function traceSurfaceHull(length, width, profile = 'classic') {
+  const halfWidth = width / 2;
+  const isCruiseShip = profile === 'cruise';
+  const isStreamlined = profile === 'streamlined';
+  const bowShoulder = isStreamlined ? 0.22 : (isCruiseShip ? 0.3 : 0.26);
+  const sternX = isStreamlined ? -0.49 : -0.47;
+  const sternWidth = isCruiseShip ? 0.78 : (isStreamlined ? 0.52 : 0.64);
+
+  ctx.beginPath();
+  ctx.moveTo(length * 0.5, 0);
+  ctx.bezierCurveTo(
+    length * 0.43, -halfWidth * bowShoulder,
+    length * 0.34, -halfWidth * 0.82,
+    length * 0.14, -halfWidth
+  );
+  ctx.bezierCurveTo(
+    -length * 0.14, -halfWidth,
+    -length * 0.35, -halfWidth * 0.9,
+    length * sternX, -halfWidth * sternWidth
+  );
+  ctx.quadraticCurveTo(-length * 0.515, 0, length * sternX, halfWidth * sternWidth);
+  ctx.bezierCurveTo(
+    -length * 0.35, halfWidth * 0.9,
+    -length * 0.14, halfWidth,
+    length * 0.14, halfWidth
+  );
+  ctx.bezierCurveTo(
+    length * 0.34, halfWidth * 0.82,
+    length * 0.43, halfWidth * bowShoulder,
+    length * 0.5, 0
+  );
+  ctx.closePath();
+}
+
+function traceRoundedRect(x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawShipMast(mastX, width, accentColor) {
+  ctx.strokeStyle = 'rgba(31, 40, 44, 0.75)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(mastX, -width * 0.22);
+  ctx.lineTo(mastX, width * 0.22);
+  ctx.stroke();
+
+  ctx.fillStyle = accentColor;
+  ctx.strokeStyle = '#283237';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(mastX, 0, Math.max(2, width * 0.045), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawLifeboats(length, width, count, structureLength, structureWidth) {
+  const boatLength = Math.min(13, Math.max(7, length * 0.045));
+  const boatWidth = Math.min(5, Math.max(3, width * 0.07));
+  const spacing = structureLength / Math.max(count, 1);
+  const startX = -structureLength / 2 + spacing / 2 - length * 0.04;
+  const boatY = Math.min(width * 0.37, structureWidth / 2 + boatWidth * 0.75);
+
+  ctx.fillStyle = '#d9a451';
+  ctx.strokeStyle = '#6f522c';
+  ctx.lineWidth = 0.8;
+
+  for (let i = 0; i < count; i++) {
+    const boatX = startX + i * spacing;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(boatX, side * boatY, boatLength / 2, boatWidth / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+}
+
+function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation, style) {
+  const hullProfile = style.hullProfile || 'classic';
+  const hullColor = style.hullColor || '#17222c';
+  const deckColor = style.deckColor || '#b78351';
+  const accentColor = style.accentColor || '#d7b46a';
+  const superstructureColor = style.superstructureColor || '#f3f0e7';
+  const structureLength = length * (style.superstructureLength || 0.6);
+  const structureWidth = width * (style.superstructureWidth || 0.46);
+  const structureCenterX = hullProfile === 'cruise' ? -length * 0.035 : -length * 0.055;
+
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(rotation);
-  
-  // Draw main hull (ellipse)
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Rudder and twin screws peek out behind the hull and improve the stern silhouette.
+  ctx.fillStyle = '#27333a';
+  ctx.strokeStyle = '#d7e1e2';
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.ellipse(0, 0, length / 2, width / 2, 0, 0, Math.PI * 2);
-  ctx.strokeStyle = '#ffffff';
+  ctx.moveTo(-length * 0.46, -width * 0.07);
+  ctx.lineTo(-length * 0.56, 0);
+  ctx.lineTo(-length * 0.46, width * 0.07);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(-length * 0.48, side * width * 0.2, Math.max(2.5, width * 0.055), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Main hull, now with a real bow and a tapered transom instead of an ellipse.
+  const hullGradient = ctx.createLinearGradient(0, -width / 2, 0, width / 2);
+  hullGradient.addColorStop(0, hullColor);
+  hullGradient.addColorStop(0.48, hullColor);
+  hullGradient.addColorStop(1, '#0f171d');
+  traceSurfaceHull(length, width, hullProfile);
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+  ctx.fillStyle = hullGradient;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#e9f0ef';
   ctx.lineWidth = 2;
   ctx.stroke();
-  
-  // Fill hull (wooden deck)
-  ctx.fillStyle = '#8B6F47';
+
+  // An inset deck leaves a visible dark hull rail all the way around.
+  ctx.save();
+  ctx.translate(length * 0.008, 0);
+  traceSurfaceHull(length * 0.91, width * 0.72, hullProfile);
+  ctx.fillStyle = deckColor;
   ctx.fill();
-  
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
   ctx.restore();
-}
 
-// Draw top structure (white rectangular superstructure)
-function drawTopStructure(x, y, length, width, rotation) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rotation);
-  
-  // Top structure is smaller than the hull to fit within outline
-  const structureLength = length * 0.7;
-  const structureWidth = width * 0.5;
-  
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(
-    -structureLength / 2,
-    -structureWidth / 2,
-    structureLength,
-    structureWidth
-  );
-  
-  // Optional: add a subtle outline
-  ctx.strokeStyle = '#cccccc';
+  // Foredeck and stern plating give the long hull readable sections.
+  ctx.strokeStyle = 'rgba(52, 42, 31, 0.45)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(
-    -structureLength / 2,
-    -structureWidth / 2,
-    structureLength,
-    structureWidth
-  );
-  
-  ctx.restore();
-}
-
-// Draw smokestacks (circles from above)
-function drawSmokestacks(x, y, length, stackCount, stackRadius, rotation) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rotation);
-  
-  ctx.strokeStyle = '#ffffff';
-  ctx.fillStyle = '#000000';
-  ctx.lineWidth = 1.5;
-  
-  // Calculate spacing between stacks (closer together)
-  const stackDiameter = stackRadius * 2;
-  const totalStackWidth = stackCount * stackDiameter;
-  const spacing = 15; // Fixed spacing between stacks
-  const totalGroupWidth = totalStackWidth + (stackCount - 1) * spacing;
-  
-  // Center the stack group longitudinally
-  const startX = -totalGroupWidth / 2 + stackRadius;
-  
-  // Stacks are centered vertically inside the ship
-  const stackY = 0;
-  
-  for (let i = 0; i < stackCount; i++) {
-    const stackX = startX + i * (stackDiameter + spacing);
-    
-    // Draw stack as circle
+  for (const deckX of [length * 0.31, -length * 0.36]) {
     ctx.beginPath();
-    ctx.arc(stackX, stackY, stackRadius, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(deckX, -width * 0.25);
+    ctx.quadraticCurveTo(deckX - length * 0.015, 0, deckX, width * 0.25);
     ctx.stroke();
   }
-  
-  ctx.restore();
-}
 
-// Draw submarine hull (dark, cylindrical shape from above)
-function drawSubmarineHull(x, y, length, width, rotation, isSubmerged = false) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rotation);
-  
-  // Draw main hull (ellipse - more cylindrical than surface ships)
-  ctx.beginPath();
-  ctx.ellipse(0, 0, length / 2, width / 2, 0, 0, Math.PI * 2);
-  
-  if (isSubmerged) {
-    // When submerged: only semi-transparent outline
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; // Semi-transparent white
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // No fill when submerged
-  } else {
-    // When on surface: normal rendering
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // Fill hull (dark gray/black submarine color)
-    ctx.fillStyle = '#2a2a2a'; // Dark gray
-    ctx.fill();
-  }
-  
-  ctx.restore();
-}
-
-// Draw conning tower (sail) for submarines - rendered as elongated cylinder
-function drawConningTower(x, y, length, width, conningTowerSize, rotation, isSubmerged = false) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rotation);
-  
-  // Conning tower is positioned forward on the submarine
-  // Tower length is proportional to conningTowerSize
-  const towerLength = length * 0.25; // About 1/4 of sub length
-  const towerWidth = conningTowerSize; // Use conningTowerSize directly for width
-  const towerX = length * 0.15; // Positioned forward
-  const towerY = 0; // Centered
-  
-  if (isSubmerged) {
-    // When submerged: don't draw conning tower (it's underwater)
-    ctx.restore();
-    return;
-  }
-  
-  // Draw conning tower as elongated cylinder (ellipse from top view)
-  ctx.fillStyle = '#1a1a1a'; // Even darker
-  ctx.beginPath();
-  ctx.ellipse(
-    towerX, 
-    towerY, 
-    towerLength / 2, // Semi-major axis (length)
-    towerWidth / 2,  // Semi-minor axis (width)
-    0, 
-    0, 
-    Math.PI * 2
+  // Main and upper superstructure decks are stepped rather than one flat rectangle.
+  traceRoundedRect(
+    structureCenterX - structureLength / 2,
+    -structureWidth / 2,
+    structureLength,
+    structureWidth,
+    width * 0.09
   );
+  ctx.fillStyle = superstructureColor;
   ctx.fill();
-  
-  // Outline
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#aeb8b7';
+  ctx.lineWidth = 1.1;
   ctx.stroke();
-  
-  // Draw periscope (small circle on conning tower)
-  ctx.fillStyle = '#000000';
-  ctx.beginPath();
-  ctx.arc(towerX, towerY, towerWidth * 0.3, 0, Math.PI * 2);
+
+  const upperLength = structureLength * (hullProfile === 'cruise' ? 0.78 : 0.66);
+  const upperWidth = structureWidth * 0.62;
+  const upperCenterX = structureCenterX + length * 0.035;
+  traceRoundedRect(
+    upperCenterX - upperLength / 2,
+    -upperWidth / 2,
+    upperLength,
+    upperWidth,
+    width * 0.07
+  );
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.strokeStyle = '#ffffff';
+  ctx.strokeStyle = '#cad1cf';
+  ctx.stroke();
+
+  // Dark promenade strips and individual windows keep detail legible at game scale.
+  ctx.strokeStyle = '#314953';
+  ctx.lineWidth = Math.max(1.2, width * 0.035);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(structureCenterX - structureLength * 0.41, side * structureWidth * 0.39);
+    ctx.lineTo(structureCenterX + structureLength * 0.39, side * structureWidth * 0.39);
+    ctx.stroke();
+  }
+
+  const windowCount = Math.max(6, Math.floor(structureLength / 20));
+  const windowSpacing = upperLength * 0.8 / (windowCount - 1);
+  ctx.fillStyle = '#263d48';
+  for (let i = 0; i < windowCount; i++) {
+    const windowX = upperCenterX - upperLength * 0.4 + i * windowSpacing;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(windowX, side * upperWidth * 0.33, Math.max(1, width * 0.018), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawLifeboats(
+    length,
+    width,
+    style.lifeboatCount || 5,
+    structureLength,
+    structureWidth
+  );
+
+  // A broad forward bridge with a dark glazed face.
+  const bridgeX = structureCenterX + structureLength * 0.38;
+  const bridgeWidth = Math.min(width * 0.48, structureWidth * 0.9);
+  traceRoundedRect(
+    bridgeX - length * 0.035,
+    -bridgeWidth / 2,
+    length * 0.07,
+    bridgeWidth,
+    width * 0.04
+  );
+  ctx.fillStyle = '#eef2ef';
+  ctx.fill();
+  ctx.strokeStyle = '#9ba8a8';
   ctx.lineWidth = 1;
   ctx.stroke();
-  
+  ctx.strokeStyle = '#29444f';
+  ctx.lineWidth = Math.max(1.5, width * 0.035);
+  ctx.beginPath();
+  ctx.moveTo(bridgeX + length * 0.02, -bridgeWidth * 0.38);
+  ctx.lineTo(bridgeX + length * 0.025, bridgeWidth * 0.38);
+  ctx.stroke();
+
+  // Funnels are elliptical from above, with colored casings and dark exhaust openings.
+  const funnelSpan = Math.min(length * 0.36, structureLength * 0.62);
+  for (let i = 0; i < stackCount; i++) {
+    const funnelX = stackCount === 1
+      ? structureCenterX
+      : structureCenterX - funnelSpan / 2 + i * (funnelSpan / (stackCount - 1));
+    const funnelLength = stackRadius * (hullProfile === 'cruise' ? 1.05 : 1.3);
+    const funnelWidth = stackRadius * (hullProfile === 'cruise' ? 0.72 : 0.82);
+
+    ctx.beginPath();
+    ctx.ellipse(funnelX, 0, funnelLength, funnelWidth, 0, 0, Math.PI * 2);
+    ctx.fillStyle = style.funnelColor || '#d39a43';
+    ctx.fill();
+    ctx.strokeStyle = '#f4e4bd';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(funnelX, 0, funnelLength * 0.53, funnelWidth * 0.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#182026';
+    ctx.fill();
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  drawShipMast(length * 0.34, width, accentColor);
+  drawShipMast(-length * 0.35, width, accentColor);
+
+  ctx.restore();
+}
+
+function traceSubmarineHull(length, width) {
+  const halfWidth = width / 2;
+  ctx.beginPath();
+  ctx.moveTo(length * 0.5, 0);
+  ctx.bezierCurveTo(
+    length * 0.42, -halfWidth * 0.58,
+    length * 0.27, -halfWidth,
+    0, -halfWidth
+  );
+  ctx.bezierCurveTo(
+    -length * 0.27, -halfWidth,
+    -length * 0.43, -halfWidth * 0.58,
+    -length * 0.49, 0
+  );
+  ctx.bezierCurveTo(
+    -length * 0.43, halfWidth * 0.58,
+    -length * 0.27, halfWidth,
+    0, halfWidth
+  );
+  ctx.bezierCurveTo(
+    length * 0.27, halfWidth,
+    length * 0.42, halfWidth * 0.58,
+    length * 0.5, 0
+  );
+  ctx.closePath();
+}
+
+function drawSubmarine(x, y, length, width, conningTowerSize, rotation, isSubmerged, style) {
+  const hullColor = style.hullColor || '#202b30';
+  const deckColor = style.deckColor || '#354247';
+  const accentColor = style.accentColor || '#849398';
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = isSubmerged ? 0.36 : 1;
+
+  // Stern planes, bow dive planes, and rudder create the recognizable U-boat outline.
+  ctx.fillStyle = hullColor;
+  ctx.strokeStyle = isSubmerged ? '#b8d8de' : '#dce5e4';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.3, -width * 0.36);
+  ctx.lineTo(-length * 0.47, -width * 0.86);
+  ctx.lineTo(-length * 0.51, -width * 0.82);
+  ctx.lineTo(-length * 0.44, -width * 0.18);
+  ctx.lineTo(-length * 0.44, width * 0.18);
+  ctx.lineTo(-length * 0.51, width * 0.82);
+  ctx.lineTo(-length * 0.47, width * 0.86);
+  ctx.lineTo(-length * 0.3, width * 0.36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(length * 0.21, side * width * 0.28);
+    ctx.lineTo(length * 0.12, side * width * 0.69);
+    ctx.lineTo(length * 0.27, side * width * 0.57);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.43, -width * 0.08);
+  ctx.lineTo(-length * 0.57, 0);
+  ctx.lineTo(-length * 0.43, width * 0.08);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  const hullGradient = ctx.createLinearGradient(0, -width / 2, 0, width / 2);
+  hullGradient.addColorStop(0, deckColor);
+  hullGradient.addColorStop(0.45, hullColor);
+  hullGradient.addColorStop(1, '#11191d');
+  traceSubmarineHull(length, width);
+  ctx.fillStyle = hullGradient;
+  ctx.fill();
+  ctx.strokeStyle = isSubmerged ? '#c9e1e4' : '#eef3f1';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Narrow casing deck, hull seams, and hatches.
+  traceRoundedRect(-length * 0.31, -width * 0.12, length * 0.65, width * 0.24, width * 0.1);
+  ctx.fillStyle = deckColor;
+  ctx.fill();
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(199, 213, 214, 0.5)';
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.42, 0);
+  ctx.lineTo(length * 0.4, 0);
+  ctx.stroke();
+
+  for (const hatchX of [-length * 0.2, length * 0.3]) {
+    ctx.beginPath();
+    ctx.arc(hatchX, 0, Math.max(2, width * 0.06), 0, Math.PI * 2);
+    ctx.fillStyle = '#151d20';
+    ctx.fill();
+    ctx.strokeStyle = accentColor;
+    ctx.stroke();
+  }
+
+  if (!isSubmerged) {
+    const towerLength = length * 0.22;
+    const towerWidth = conningTowerSize;
+    const towerX = length * 0.08;
+
+    ctx.beginPath();
+    ctx.ellipse(towerX, 0, towerLength / 2, towerWidth / 2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#182125';
+    ctx.fill();
+    ctx.strokeStyle = '#dce5e4';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // Periscope and lookout rails.
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(towerX - towerLength * 0.2, -towerWidth * 0.55);
+    ctx.lineTo(towerX + towerLength * 0.2, -towerWidth * 0.55);
+    ctx.moveTo(towerX - towerLength * 0.2, towerWidth * 0.55);
+    ctx.lineTo(towerX + towerLength * 0.2, towerWidth * 0.55);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(towerX, 0, Math.max(2, towerWidth * 0.24), 0, Math.PI * 2);
+    ctx.fillStyle = '#080d0f';
+    ctx.fill();
+    ctx.strokeStyle = '#e5ecea';
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
 
@@ -1847,27 +2152,18 @@ function drawMinimap() {
   
   // Check category and render accordingly
   if (ship.category === 'Submarines') {
-    // Draw submarine hull outline (ellipse)
+    traceSubmarineHull(minimapLength, minimapWidth);
     if (ship.isSubmerged) {
-      // When submerged: semi-transparent outline
       ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)'; // Semi-transparent red
       ctx.lineWidth = minimapExpanded ? 2 : 1;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
       ctx.stroke();
-      // No fill when submerged
     } else {
-      // When on surface: normal rendering
+      ctx.fillStyle = ship.visualStyle.hullColor || '#202b30';
+      ctx.fill();
       ctx.strokeStyle = '#ff0000';
       ctx.lineWidth = minimapExpanded ? 2 : 1;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
       ctx.stroke();
-      
-      // Fill with dark gray
-      ctx.fillStyle = '#2a2a2a';
-      ctx.fill();
-      
+
       // Draw simplified conning tower (elongated cylinder/ellipse forward)
       const towerLength = minimapLength * 0.25;
       const towerWidth = ship.conningTowerSize * minimapShipScale;
@@ -1881,32 +2177,44 @@ function drawMinimap() {
       ctx.stroke();
     }
   } else {
-    // Draw surface ship hull outline (ellipse)
+    traceSurfaceHull(
+      minimapLength,
+      minimapWidth,
+      ship.visualStyle.hullProfile || 'classic'
+    );
+    ctx.fillStyle = ship.visualStyle.hullColor || '#17222c';
+    ctx.fill();
     ctx.strokeStyle = '#ff0000';
     ctx.lineWidth = minimapExpanded ? 2 : 1;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, minimapLength / 2, minimapWidth / 2, 0, 0, Math.PI * 2);
     ctx.stroke();
     
-    // Draw simplified superstructure (small rectangle)
-    const structureLength = minimapLength * 0.7;
-    const structureWidth = minimapWidth * 0.5;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+    // Draw simplified superstructure.
+    const structureLength = minimapLength * (ship.visualStyle.superstructureLength || 0.6);
+    const structureWidth = minimapWidth * (ship.visualStyle.superstructureWidth || 0.46);
+    traceRoundedRect(
+      -structureLength / 2,
+      -structureWidth / 2,
+      structureLength,
+      structureWidth,
+      Math.max(0.5, structureWidth * 0.15)
+    );
+    ctx.fillStyle = ship.visualStyle.superstructureColor || '#ffffff';
+    ctx.fill();
     ctx.strokeStyle = '#ff0000';
     ctx.lineWidth = minimapExpanded ? 1.5 : 0.5;
-    ctx.strokeRect(-structureLength / 2, -structureWidth / 2, structureLength, structureWidth);
+    ctx.stroke();
     
     // Draw simplified smokestacks (small circles)
     const stackRadius = minimapExpanded ? 1.5 : 0.8;
-    const stackSpacing = minimapLength * 0.15;
-    const totalStackWidth = (ship.stackCount - 1) * stackSpacing;
-    const startStackX = -totalStackWidth / 2;
+    const stackSpan = Math.min(minimapLength * 0.36, structureLength * 0.62);
     
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = ship.visualStyle.funnelColor || '#d39a43';
     for (let i = 0; i < ship.stackCount; i++) {
+      const stackX = ship.stackCount === 1
+        ? 0
+        : -stackSpan / 2 + i * (stackSpan / (ship.stackCount - 1));
       ctx.beginPath();
-      ctx.arc(startStackX + i * stackSpacing, 0, stackRadius, 0, Math.PI * 2);
+      ctx.arc(stackX, 0, stackRadius, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1947,35 +2255,26 @@ function drawShip() {
   
   // Check category and render accordingly
   if (ship.category === 'Submarines') {
-    // Draw submarine hull (pass isSubmerged state)
-    drawSubmarineHull(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation, ship.isSubmerged);
-    
-    // Draw conning tower (sail) - rendered as elongated cylinder (only when on surface)
-    drawConningTower(
+    drawSubmarine(
       ship.screenX,
       ship.screenY,
       ship.length,
       ship.width,
-      ship.conningTowerSize, // Use conningTowerSize property
+      ship.conningTowerSize,
       ship.rotation,
-      ship.isSubmerged
+      ship.isSubmerged,
+      ship.visualStyle
     );
   } else {
-    // Draw surface ship (steamer)
-    // Draw hull
-    drawShipHull(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
-    
-    // Draw top structure (white superstructure)
-    drawTopStructure(ship.screenX, ship.screenY, ship.length, ship.width, ship.rotation);
-    
-    // Draw smokestacks
-    drawSmokestacks(
+    drawSurfaceShip(
       ship.screenX,
       ship.screenY,
       ship.length,
+      ship.width,
       ship.stackCount,
       ship.stackRadius,
-      ship.rotation
+      ship.rotation,
+      ship.visualStyle
     );
   }
 }
@@ -2052,4 +2351,3 @@ gameStartTime = performance.now();
 
 // Start game loop
 gameLoop();
-
