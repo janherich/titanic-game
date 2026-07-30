@@ -1956,6 +1956,10 @@ function drawKraken(kraken) {
   }
 
   ctx.save();
+  // World entities are drawn in raw canvas coordinates. Reset the transform
+  // here so a transform from another renderer can never pin the kraken to a
+  // screen corner.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.translate(screenX, screenY);
   ctx.rotate(kraken.heading);
 
@@ -3769,4 +3773,4 @@ generateKrakens();
 gameStartTime = performance.now();
 
 // Start game loop
-gameLoop();
+gameLoop(performance.now());
