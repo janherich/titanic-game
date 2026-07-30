@@ -224,6 +224,41 @@ const shipTypes = {
         turnRate: 0.01,
         pivotPoint: 0.5
       }
+    },
+    'HMHS Britannic': {
+      visual: {
+        length: 300,
+        width: 70,
+        stackCount: 4,
+        stackRadius: 12,
+        style: {
+          hullProfile: 'classic',
+          hullColor: '#e8edf0',
+          deckColor: '#f4f2e8',
+          accentColor: '#2f9f6b',
+          funnelColor: '#f0f1eb',
+          funnelBand: true,
+          funnelBandColor: '#2f9f6b',
+          hospitalShip: true,
+          hospitalBandColor: '#2f9f6b',
+          hospitalCrossColor: '#c7353d',
+          superstructureColor: '#fcfcf7',
+          superstructureLength: 0.66,
+          superstructureWidth: 0.5,
+          lifeboatCount: 10
+        }
+      },
+      physics: {
+        maxSpeed: 3.8,
+        maxReverseSpeed: 0.9,
+        accelerationPower: 0.03,
+        accelerationDecay: 0.08,
+        friction: 0.02,
+        maxRudderAngle: Math.PI / 6,
+        rudderSpeed: 0.025,
+        turnRate: 0.018,
+        pivotPoint: 0.68
+      }
     }
   },
   Submarines: {
@@ -537,6 +572,19 @@ function drawLifeboats(length, width, count, structureLength, structureWidth) {
   }
 }
 
+function drawHospitalCross(x, y, size, color) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillRect(-size * 0.62, -size * 0.62, size * 1.24, size * 1.24);
+
+  ctx.fillStyle = color;
+  ctx.fillRect(-size * 0.18, -size * 0.5, size * 0.36, size);
+  ctx.fillRect(-size * 0.5, -size * 0.18, size, size * 0.36);
+  ctx.restore();
+}
+
 function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation, style) {
   const hullProfile = style.hullProfile || 'classic';
   const hullColor = style.hullColor || '#17222c';
@@ -600,6 +648,14 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
   ctx.lineWidth = 1.2;
   ctx.stroke();
   ctx.restore();
+
+  if (style.hospitalShip) {
+    // The green hull band is the ship's strongest silhouette cue from above.
+    traceSurfaceHull(length * 0.95, width * 0.84, hullProfile);
+    ctx.strokeStyle = style.hospitalBandColor || '#2f9f6b';
+    ctx.lineWidth = Math.max(3, width * 0.055);
+    ctx.stroke();
+  }
 
   // Foredeck and stern plating give the long hull readable sections.
   ctx.strokeStyle = 'rgba(52, 42, 31, 0.45)';
@@ -697,6 +753,22 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
     structureWidth
   );
 
+  if (style.hospitalShip) {
+    const crossSize = Math.max(7, width * 0.13);
+    drawHospitalCross(
+      upperCenterX - upperLength * 0.25,
+      -upperWidth * 0.66,
+      crossSize,
+      style.hospitalCrossColor || '#c7353d'
+    );
+    drawHospitalCross(
+      upperCenterX + upperLength * 0.25,
+      upperWidth * 0.66,
+      crossSize,
+      style.hospitalCrossColor || '#c7353d'
+    );
+  }
+
   // A broad forward bridge with a dark glazed face.
   const bridgeX = structureCenterX + structureLength * 0.38;
   const bridgeWidth = Math.min(width * 0.48, structureWidth * 0.9);
@@ -748,7 +820,7 @@ function drawSurfaceShip(x, y, length, width, stackCount, stackRadius, rotation,
         0,
         Math.PI * 2
       );
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = style.funnelBandColor || '#ffffff';
       ctx.lineWidth = Math.max(2, stackRadius * 0.2);
       ctx.stroke();
     }
