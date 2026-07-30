@@ -346,9 +346,13 @@ const krakenConfig = {
   spawnChance: 0.55,
   maxCount: 2,
   swimSpeed: 0.7,
+  chaseSpeed: 4.7,
+  chaseTurnRate: 0.055,
+  engageDistanceInShipLengths: 3.75,
+  disengageDistanceInShipLengths: 5.5,
+  attackDistance: 86,
   minSpacing: 1200,
-  islandClearance: goalConfig.radius * 3,
-  dangerDistanceInShipLengths: 1.6
+  islandClearance: goalConfig.radius * 3
 };
 
 // Goal state
@@ -380,6 +384,7 @@ const fuelRigs = [];
 const krakens = [];
 let nearFuelRig = false;
 let isRefueling = false;
+let krakenChaseActive = false;
 const icebergGridSize = 500; // Generate icebergs in chunks
 const loadedIcebergChunks = new Set(); // Track which chunks have been generated
 
@@ -1955,6 +1960,16 @@ function drawKraken(kraken) {
   ctx.rotate(kraken.heading);
 
   const pulse = 0.5 + Math.sin(animationTime * 0.05 + kraken.phase) * 0.18;
+  if (kraken.isChasing) {
+    ctx.strokeStyle = `rgba(236, 67, 81, ${0.35 + pulse * 0.3})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -animationTime * 0.55;
+    ctx.beginPath();
+    ctx.arc(0, 0, 78, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.fillStyle = 'rgba(15, 9, 29, 0.3)';
   ctx.beginPath();
   ctx.ellipse(-4, 10, 68, 31, 0, 0, Math.PI * 2);
@@ -2020,7 +2035,7 @@ function drawKraken(kraken) {
     ctx.beginPath();
     ctx.arc(29, eyeY, 5.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#d84d5a';
+    ctx.fillStyle = kraken.isChasing ? '#ff3d4e' : '#d84d5a';
     ctx.beginPath();
     ctx.arc(31, eyeY, 2.2, 0, Math.PI * 2);
     ctx.fill();
@@ -2175,6 +2190,7 @@ function checkFuelRigs(deltaTime) {
 
 function generateKrakens() {
   krakens.length = 0;
+  krakenChaseActive = false;
   if (Math.random() > krakenConfig.spawnChance) return;
 
   const count = Math.random() < 0.22 ? krakenConfig.maxCount : 1;
@@ -2206,17 +2222,44 @@ function generateKrakens() {
       y,
       heading: Math.random() * Math.PI * 2,
       phase: Math.random() * Math.PI * 2,
+      isChasing: false,
       seed: krakens.length * 743 + x * 0.023 + y * 0.013
     });
   }
 }
 
 function updateKrakens(deltaTime) {
+  krakenChaseActive = false;
+
   for (const kraken of krakens) {
     kraken.phase += deltaTime * 0.08;
-    kraken.heading += Math.sin(kraken.phase + kraken.seed) * 0.0025 * deltaTime;
-    kraken.x += Math.cos(kraken.heading) * krakenConfig.swimSpeed * deltaTime;
-    kraken.y += Math.sin(kraken.heading) * krakenConfig.swimSpeed * deltaTime;
+    const distanceToShip = Math.hypot(camera.x - kraken.x, camera.y - kraken.y);
+    const engageDistance = ship.length * krakenConfig.engageDistanceInShipLengths;
+    const disengageDistance = ship.length * krakenConfig.disengageDistanceInShipLengths;
+
+    if (distanceToShip < engageDistance) {
+      kraken.isChasing = true;
+    } else if (distanceToShip > disengageDistance) {
+      kraken.isChasing = false;
+    }
+
+    let speed = krakenConfig.swimSpeed;
+    if (kraken.isChasing) {
+      krakenChaseActive = true;
+      const targetHeading = Math.atan2(camera.y - kraken.y, camera.x - kraken.x);
+      const headingDifference = Math.atan2(
+        Math.sin(targetHeading - kraken.heading),
+        Math.cos(targetHeading - kraken.heading)
+      );
+      const maxTurn = krakenConfig.chaseTurnRate * deltaTime;
+      kraken.heading += Math.max(-maxTurn, Math.min(maxTurn, headingDifference));
+      speed = krakenConfig.chaseSpeed;
+    } else {
+      kraken.heading += Math.sin(kraken.phase + kraken.seed) * 0.0025 * deltaTime;
+    }
+
+    kraken.x += Math.cos(kraken.heading) * speed * deltaTime;
+    kraken.y += Math.sin(kraken.heading) * speed * deltaTime;
 
     const margin = 500;
     if (kraken.x < margin || kraken.x > worldConfig.width - margin) {
@@ -2235,7 +2278,10 @@ function checkKrakenEncounters() {
 
   for (const kraken of krakens) {
     const distance = Math.hypot(camera.x - kraken.x, camera.y - kraken.y);
-    const dangerDistance = ship.length * krakenConfig.dangerDistanceInShipLengths;
+    const dangerDistance = Math.max(
+      krakenConfig.attackDistance,
+      ship.width / 2 + 50
+    );
     if (distance < dangerDistance) {
       recordShipwreck(camera.x, camera.y);
       gameOverReason = 'kraken';
@@ -3283,7 +3329,12 @@ function drawUI() {
   ctx.textAlign = 'center';
   ctx.fillText(`${coalPercentage.toFixed(0)}%`, barX + barWidth / 2, barY + barHeight / 2 + 4);
 
-  if (nearFuelRig) {
+  if (krakenChaseActive) {
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#ff737d';
+    ctx.fillText('KRAKEN CHASING YOU!', barX, panelY + 150);
+  } else if (nearFuelRig) {
     ctx.textAlign = 'left';
     ctx.font = 'bold 12px Arial';
     ctx.fillStyle = isRefueling ? '#9ff0b0' : '#f5d873';
