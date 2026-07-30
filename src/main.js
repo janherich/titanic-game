@@ -333,6 +333,14 @@ const goalConfig = {
   edgeOffset: 300 // Distance from edge to place goal
 };
 
+const fuelRigConfig = {
+  count: 7,
+  refuelRadius: 185,
+  minSpacing: 900,
+  islandClearance: goalConfig.radius * 3,
+  refuelRate: 0.8
+};
+
 // Goal state
 let goal = {
   x: 0,
@@ -358,6 +366,9 @@ const icebergs = [];
 // Shipwrecks persist for the lifetime of the page and are intentionally not
 // cleared by restartGame(). A full reload resets this in-memory history.
 const shipwrecks = [];
+const fuelRigs = [];
+let nearFuelRig = false;
+let isRefueling = false;
 const icebergGridSize = 500; // Generate icebergs in chunks
 const loadedIcebergChunks = new Set(); // Track which chunks have been generated
 
@@ -1331,9 +1342,13 @@ function generateIcebergsForChunk(chunkX, chunkY) {
     const distanceFromGoal = goal.generated
       ? Math.hypot(x - goal.x, y - goal.y)
       : Infinity;
+    const nearFuelRig = fuelRigs.some(rig =>
+      Math.hypot(x - rig.x, y - rig.y) < fuelRigConfig.refuelRadius * 1.5
+    );
     if (
       distanceFromStartPort < goalConfig.radius * 2.5 ||
-      distanceFromGoal < goalConfig.radius * 1.65
+      distanceFromGoal < goalConfig.radius * 1.65 ||
+      nearFuelRig
     ) {
       continue;
     }
@@ -1745,6 +1760,173 @@ function drawShipwreckMarker(x, y, radius, expanded) {
   ctx.restore();
 }
 
+function drawFuelRig(rig) {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  const screenX = rig.x - camera.x + screenCenterX;
+  const screenY = rig.y - camera.y + screenCenterY;
+  const margin = fuelRigConfig.refuelRadius + 80;
+
+  if (screenX < -margin || screenX > canvas.width + margin ||
+      screenY < -margin || screenY > canvas.height + margin) {
+    return;
+  }
+
+  const pulse = 0.5 + Math.sin(animationTime * 0.06 + rig.seed) * 0.18;
+  const rigIsNearby = Math.hypot(camera.x - rig.x, camera.y - rig.y) < fuelRigConfig.refuelRadius;
+  const ringColor = rigIsNearby ? '#f7d36a' : '#dba94f';
+
+  ctx.save();
+  ctx.translate(screenX, screenY);
+
+  ctx.strokeStyle = `rgba(247, 211, 106, ${0.2 + pulse * 0.16})`;
+  ctx.lineWidth = rigIsNearby ? 3 : 1.5;
+  ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = -animationTime * 0.35;
+  ctx.beginPath();
+  ctx.arc(0, 0, fuelRigConfig.refuelRadius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.save();
+  ctx.rotate((hash01(rig.seed, 1) - 0.5) * 0.35);
+
+  // Submerged shadow and four support legs.
+  ctx.fillStyle = 'rgba(3, 28, 39, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(5, 9, 62, 52, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#536c72';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  for (const [legX, legY] of [[-30, -24], [30, -24], [-30, 24], [30, 24]]) {
+    ctx.beginPath();
+    ctx.moveTo(legX, legY);
+    ctx.lineTo(legX * 0.72, legY * 0.72 + 10);
+    ctx.stroke();
+  }
+
+  // Main production deck.
+  ctx.fillStyle = '#6d7f7d';
+  ctx.strokeStyle = '#263b42';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-48, -30);
+  ctx.lineTo(38, -30);
+  ctx.lineTo(50, -14);
+  ctx.lineTo(50, 23);
+  ctx.lineTo(27, 34);
+  ctx.lineTo(-45, 28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Helipad and safety markings make the platform readable at game scale.
+  ctx.fillStyle = '#8d9b94';
+  ctx.beginPath();
+  ctx.arc(-18, -2, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#e9c45a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.strokeStyle = '#f5e8a9';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-27, -2);
+  ctx.lineTo(-9, -2);
+  ctx.moveTo(-18, -11);
+  ctx.lineTo(-18, 7);
+  ctx.stroke();
+
+  // Derrick, pipework, and a small flare stack give the rig its silhouette.
+  ctx.strokeStyle = '#c3d0c8';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(16, 19);
+  ctx.lineTo(30, -18);
+  ctx.lineTo(42, 17);
+  ctx.moveTo(22, 3);
+  ctx.lineTo(37, 3);
+  ctx.moveTo(25, -7);
+  ctx.lineTo(39, -7);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#e1b44c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(5, 26);
+  ctx.lineTo(5, -22);
+  ctx.lineTo(18, -22);
+  ctx.stroke();
+
+  const flareGlow = ctx.createRadialGradient(43, -22, 0, 43, -22, 14);
+  flareGlow.addColorStop(0, `rgba(255, 224, 124, ${0.35 + pulse * 0.25})`);
+  flareGlow.addColorStop(1, 'rgba(255, 224, 124, 0)');
+  ctx.fillStyle = flareGlow;
+  ctx.beginPath();
+  ctx.arc(43, -22, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffd56a';
+  ctx.beginPath();
+  ctx.arc(43, -22, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = ringColor;
+  for (const light of [[-43, -25], [47, -14], [28, 27], [-38, 23]]) {
+    ctx.beginPath();
+    ctx.arc(light[0], light[1], 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(12, 25, 31, 0.72)';
+  ctx.fillRect(-39, 65, 78, 20);
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-39, 65, 78, 20);
+  ctx.fillStyle = '#f8e7a5';
+  ctx.font = 'bold 11px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('REFUEL', 0, 75);
+  ctx.restore();
+}
+
+function drawFuelRigs() {
+  for (const rig of fuelRigs) {
+    drawFuelRig(rig);
+  }
+}
+
+function drawFuelRigMarker(x, y, radius, expanded) {
+  const markerRadius = Math.max(expanded ? 5 : 3, radius);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(18, 29, 34, 0.82)';
+  ctx.beginPath();
+  ctx.arc(x, y, markerRadius + 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#f1c75d';
+  ctx.lineWidth = expanded ? 2 : 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x - markerRadius, y + markerRadius);
+  ctx.lineTo(x, y - markerRadius);
+  ctx.lineTo(x + markerRadius, y + markerRadius);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - markerRadius * 0.7, y);
+  ctx.lineTo(x + markerRadius * 0.7, y);
+  ctx.stroke();
+  ctx.fillStyle = '#f1c75d';
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(1.5, markerRadius * 0.28), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 // Generate start port on edge of world
 function generateStartPort() {
   const offset = goalConfig.edgeOffset;
@@ -1825,6 +2007,56 @@ function generateGoal() {
   }
   
   goal.generated = true;
+}
+
+function generateFuelRigs() {
+  fuelRigs.length = 0;
+
+  const margin = 450;
+  const maxAttempts = fuelRigConfig.count * 120;
+  let attempts = 0;
+
+  while (fuelRigs.length < fuelRigConfig.count && attempts < maxAttempts) {
+    attempts++;
+    const x = margin + Math.random() * (worldConfig.width - margin * 2);
+    const y = margin + Math.random() * (worldConfig.height - margin * 2);
+
+    if (startPort.generated && Math.hypot(x - startPort.x, y - startPort.y) < fuelRigConfig.islandClearance) {
+      continue;
+    }
+    if (goal.generated && Math.hypot(x - goal.x, y - goal.y) < fuelRigConfig.islandClearance) {
+      continue;
+    }
+    if (fuelRigs.some(rig => Math.hypot(x - rig.x, y - rig.y) < fuelRigConfig.minSpacing)) {
+      continue;
+    }
+
+    fuelRigs.push({
+      x,
+      y,
+      seed: fuelRigs.length * 431 + x * 0.017 + y * 0.029
+    });
+  }
+}
+
+function checkFuelRigs(deltaTime) {
+  nearFuelRig = false;
+  isRefueling = false;
+
+  for (const rig of fuelRigs) {
+    const distance = Math.hypot(camera.x - rig.x, camera.y - rig.y);
+    if (distance >= fuelRigConfig.refuelRadius) continue;
+
+    nearFuelRig = true;
+    if (Math.abs(ship.speed) <= 0.35 && currentCoal < coalConfig.maxCoal) {
+      isRefueling = true;
+      currentCoal = Math.min(
+        coalConfig.maxCoal,
+        currentCoal + fuelRigConfig.refuelRate * deltaTime
+      );
+    }
+    break;
+  }
 }
 
 // Check if ship reached the goal
@@ -2731,11 +2963,14 @@ function restartGame() {
   // Generate start port (this will also position the camera near the start port) and goal
   generateStartPort();
   generateGoal();
+  generateFuelRigs();
   
   // Reset animation and timing
   animationTime = 0;
   totalDistance = 0;
   currentCoal = coalConfig.maxCoal;
+  nearFuelRig = false;
+  isRefueling = false;
   gameStartTime = performance.now();
   winTime = 0; // Reset win time
   lastTime = performance.now();
@@ -2792,7 +3027,7 @@ function drawUI() {
   const panelX = 20;
   const panelY = 20;
   const panelWidth = 230;
-  const panelHeight = 138;
+  const panelHeight = 174;
   
   ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
   ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
@@ -2852,6 +3087,17 @@ function drawUI() {
   ctx.font = '12px Arial';
   ctx.textAlign = 'center';
   ctx.fillText(`${coalPercentage.toFixed(0)}%`, barX + barWidth / 2, barY + barHeight / 2 + 4);
+
+  if (nearFuelRig) {
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = isRefueling ? '#9ff0b0' : '#f5d873';
+    ctx.fillText(
+      isRefueling ? 'REFUELING...' : 'STOP TO REFUEL',
+      barX,
+      panelY + 150
+    );
+  }
   
   ctx.restore();
 }
@@ -3010,6 +3256,25 @@ function drawMinimap() {
     ctx.beginPath();
     ctx.arc(goalMapX, goalMapY, indicatorRadius, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  // Oil rigs appear as gold derrick markers on the route map.
+  for (const rig of fuelRigs) {
+    const rigMapX = mapOffsetX + rig.x * scale;
+    const rigMapY = mapOffsetY + rig.y * scale;
+    if (minimapExpanded) {
+      ctx.strokeStyle = 'rgba(241, 199, 93, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(rigMapX, rigMapY, fuelRigConfig.refuelRadius * scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    drawFuelRigMarker(
+      rigMapX,
+      rigMapY,
+      fuelRigConfig.refuelRadius * scale * (minimapExpanded ? 0.3 : 0.2),
+      minimapExpanded
+    );
   }
 
   // Wrecks remain visible in the route history after restarting the game.
@@ -3182,6 +3447,7 @@ function gameLoop(currentTime) {
   // Update ship physics (only if game is running and minimap is not expanded)
   if (!gameOver && !gameWon && !minimapExpanded) {
     updateShip(deltaTime);
+    checkFuelRigs(deltaTime);
     
     // Ensure icebergs are generated for visible area
     ensureIcebergsGenerated();
@@ -3207,6 +3473,9 @@ function gameLoop(currentTime) {
 
   // Draw remembered wrecks as persistent world obstacles.
   drawShipwrecks();
+
+  // Draw offshore refueling platforms.
+  drawFuelRigs();
 
   // Draw start port
   drawStartPort();
@@ -3239,6 +3508,7 @@ applyShipType(currentShipType);
 // Initialize start port and goal on first game start
 generateStartPort();
 generateGoal();
+generateFuelRigs();
 gameStartTime = performance.now();
 
 // Start game loop
