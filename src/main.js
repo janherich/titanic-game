@@ -343,8 +343,8 @@ const fuelRigConfig = {
 };
 
 const krakenConfig = {
-  spawnChance: 0.55,
-  maxCount: 2,
+  minCount: 2,
+  maxCount: 3,
   swimSpeed: 0.7,
   chaseSpeed: 4.7,
   chaseTurnRate: 0.055,
@@ -2191,9 +2191,9 @@ function checkFuelRigs(deltaTime) {
 function generateKrakens() {
   krakens.length = 0;
   krakenChaseActive = false;
-  if (Math.random() > krakenConfig.spawnChance) return;
-
-  const count = Math.random() < 0.22 ? krakenConfig.maxCount : 1;
+  const count = krakenConfig.minCount + Math.floor(
+    Math.random() * (krakenConfig.maxCount - krakenConfig.minCount + 1)
+  );
   const margin = 900;
   const maxAttempts = count * 100;
   let attempts = 0;
