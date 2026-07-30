@@ -1470,13 +1470,120 @@ function drawIcebergs() {
   }
 }
 
+function drawWreckDamage(shipwreck, wreckLength, wreckWidth, source) {
+  const floodedSide = hash01(shipwreck.seed, 2) > 0.5 ? 1 : -1;
+  const waterline = wreckWidth * (0.02 + hash01(shipwreck.seed, 3) * 0.14);
+
+  ctx.save();
+  ctx.globalAlpha = 0.88;
+
+  // Flooding covers one side of the original deck with an irregular waterline.
+  ctx.fillStyle = 'rgba(5, 46, 59, 0.76)';
+  ctx.beginPath();
+  ctx.moveTo(-wreckLength * 0.52, floodedSide * waterline);
+  ctx.lineTo(-wreckLength * 0.25, floodedSide * (waterline + wreckWidth * 0.04));
+  ctx.lineTo(wreckLength * 0.02, floodedSide * (waterline - wreckWidth * 0.025));
+  ctx.lineTo(wreckLength * 0.27, floodedSide * (waterline + wreckWidth * 0.035));
+  ctx.lineTo(wreckLength * 0.52, floodedSide * waterline);
+  ctx.lineTo(wreckLength * 0.5, floodedSide * wreckWidth * 0.54);
+  ctx.lineTo(-wreckLength * 0.5, floodedSide * wreckWidth * 0.54);
+  ctx.closePath();
+  ctx.fill();
+
+  // A dark pool in the broken midsection suggests a partially submerged hull.
+  ctx.fillStyle = 'rgba(4, 27, 36, 0.78)';
+  ctx.beginPath();
+  ctx.ellipse(
+    wreckLength * (hash01(shipwreck.seed, 4) - 0.5) * 0.2,
+    floodedSide * wreckWidth * 0.18,
+    wreckLength * 0.19,
+    wreckWidth * 0.27,
+    hash01(shipwreck.seed, 5) * 0.35,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  // The diagonal seam and missing plating make the transformation obvious.
+  ctx.strokeStyle = '#172326';
+  ctx.lineWidth = Math.max(2, wreckWidth * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(-wreckLength * 0.18, -wreckWidth * 0.56);
+  ctx.lineTo(wreckLength * 0.04, wreckWidth * 0.56);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(18, 24, 25, 0.76)';
+  ctx.beginPath();
+  ctx.moveTo(wreckLength * 0.08, -wreckWidth * 0.42);
+  ctx.lineTo(wreckLength * 0.23, -wreckWidth * 0.3);
+  ctx.lineTo(wreckLength * 0.14, wreckWidth * 0.4);
+  ctx.lineTo(wreckLength * 0.02, wreckWidth * 0.27);
+  ctx.closePath();
+  ctx.fill();
+
+  // Surface ships retain their recognizable funnels, but a few are collapsed.
+  if (source.category !== 'Submarines') {
+    const structureLength = wreckLength * (source.visualStyle?.superstructureLength || 0.6);
+    const funnelSpan = Math.min(wreckLength * 0.36, structureLength * 0.62);
+    const damagedFunnelCount = Math.max(1, Math.ceil((source.stackCount || 1) / 2));
+    for (let i = 0; i < damagedFunnelCount; i++) {
+      const funnelIndex = Math.floor(hash01(shipwreck.seed, i, 7) * Math.max(source.stackCount || 1, 1));
+      const funnelX = (source.stackCount || 1) === 1
+        ? 0
+        : -funnelSpan / 2 + funnelIndex * (funnelSpan / Math.max(source.stackCount - 1, 1));
+      ctx.fillStyle = 'rgba(14, 24, 27, 0.82)';
+      ctx.beginPath();
+      ctx.ellipse(funnelX, 0, wreckWidth * 0.13, wreckWidth * 0.1, 0.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#a55e40';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(funnelX - wreckWidth * 0.16, -wreckWidth * 0.08);
+      ctx.lineTo(funnelX + wreckWidth * 0.15, wreckWidth * 0.11);
+      ctx.stroke();
+    }
+  } else {
+    // Submarine wrecks lose the conning tower into the water instead.
+    ctx.fillStyle = 'rgba(6, 25, 31, 0.82)';
+    ctx.beginPath();
+    ctx.ellipse(wreckLength * 0.08, 0, wreckLength * 0.11, wreckWidth * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#6c9ca2';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(wreckLength * 0.02, -wreckWidth * 0.2);
+    ctx.lineTo(wreckLength * 0.14, wreckWidth * 0.19);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#d3874b';
+  for (let debris = 0; debris < 5; debris++) {
+    const debrisX = (hash01(shipwreck.seed, debris, 21) - 0.5) * wreckLength * 1.3;
+    const debrisY = (hash01(shipwreck.seed, debris, 22) - 0.5) * wreckWidth * 2.2;
+    ctx.beginPath();
+    ctx.arc(debrisX, debrisY, 2 + hash01(shipwreck.seed, debris, 23) * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 function drawShipwreck(shipwreck) {
   const screenCenterX = canvas.width / 2;
   const screenCenterY = canvas.height / 2;
   const screenX = shipwreck.x - camera.x + screenCenterX;
   const screenY = shipwreck.y - camera.y + screenCenterY;
-  const wreckLength = shipwreck.size * 2.15;
-  const wreckWidth = shipwreck.size * 0.62;
+  const source = shipwreck.source || {
+    category: 'Steamers',
+    length: shipwreck.size * 2.15,
+    width: shipwreck.size * 0.62,
+    stackCount: 1,
+    stackRadius: 8,
+    visualStyle: { hullProfile: 'classic' }
+  };
+  const wreckScale = Math.min(0.68, (shipwreck.size * 2.25) / source.length);
+  const wreckLength = source.length * wreckScale;
+  const wreckWidth = source.width * wreckScale;
 
   if (screenX < -wreckLength || screenX > canvas.width + wreckLength ||
       screenY < -wreckLength || screenY > canvas.height + wreckLength) {
@@ -1487,8 +1594,6 @@ function drawShipwreck(shipwreck) {
   ctx.translate(screenX, screenY);
   ctx.rotate(shipwreck.rotation);
 
-  // A low, broken hull and a faint wake make the wreck legible against the
-  // water while still feeling like a settled obstacle rather than a new ship.
   ctx.fillStyle = 'rgba(5, 28, 38, 0.25)';
   ctx.beginPath();
   ctx.ellipse(5, 7, wreckLength * 0.52, wreckWidth * 0.68, 0, 0, Math.PI * 2);
@@ -1510,48 +1615,35 @@ function drawShipwreck(shipwreck) {
     ctx.stroke();
   }
 
-  traceSurfaceHull(wreckLength, wreckWidth, 'classic');
-  ctx.fillStyle = '#27343a';
-  ctx.fill();
-  ctx.strokeStyle = '#c2784b';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // The split deck and exposed red-brown plating communicate that this is a
-  // wreck, not a selectable vessel.
-  ctx.save();
-  ctx.translate(-wreckLength * 0.05, 0);
-  traceSurfaceHull(wreckLength * 0.84, wreckWidth * 0.68, 'classic');
-  ctx.fillStyle = '#76533e';
-  ctx.fill();
-  ctx.strokeStyle = '#c89567';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.fillStyle = '#3a2522';
-  ctx.fillRect(-wreckLength * 0.1, -wreckWidth * 0.24, wreckLength * 0.27, wreckWidth * 0.16);
-  ctx.fillStyle = '#b76b45';
-  ctx.fillRect(wreckLength * 0.18, -wreckWidth * 0.2, wreckLength * 0.16, wreckWidth * 0.13);
-
-  ctx.strokeStyle = '#1e2b30';
-  ctx.lineWidth = Math.max(2, shipwreck.size * 0.035);
-  ctx.beginPath();
-  ctx.moveTo(-wreckLength * 0.06, 0);
-  ctx.lineTo(wreckLength * 0.2, -wreckWidth * 0.72);
-  ctx.moveTo(wreckLength * 0.08, wreckWidth * 0.04);
-  ctx.lineTo(-wreckLength * 0.23, wreckWidth * 0.64);
-  ctx.stroke();
-
-  ctx.fillStyle = '#d3874b';
-  for (let debris = 0; debris < 4; debris++) {
-    const debrisX = (hash01(shipwreck.seed, debris, 21) - 0.5) * wreckLength * 1.3;
-    const debrisY = (hash01(shipwreck.seed, debris, 22) - 0.5) * wreckWidth * 2.2;
-    ctx.beginPath();
-    ctx.arc(debrisX, debrisY, 2 + hash01(shipwreck.seed, debris, 23) * 2, 0, Math.PI * 2);
-    ctx.fill();
+  // Reuse the exact ship renderer and its captured visual style before
+  // applying damage, so every wreck remains identifiable.
+  ctx.globalAlpha = 0.8;
+  if (source.category === 'Submarines') {
+    drawSubmarine(
+      0,
+      0,
+      source.length * wreckScale,
+      source.width * wreckScale,
+      (source.conningTowerSize || 12) * wreckScale,
+      0,
+      false,
+      source.visualStyle || {}
+    );
+  } else {
+    drawSurfaceShip(
+      0,
+      0,
+      source.length * wreckScale,
+      source.width * wreckScale,
+      source.stackCount || 1,
+      (source.stackRadius || 8) * wreckScale,
+      0,
+      source.visualStyle || {}
+    );
   }
+  ctx.globalAlpha = 1;
 
+  drawWreckDamage(shipwreck, wreckLength, wreckWidth, source);
   ctx.restore();
 }
 
@@ -2335,7 +2427,18 @@ function recordShipwreck(x, y) {
     y,
     size: wreckSize,
     rotation: ship.rotation,
-    seed: shipwrecks.length * 977 + x * 0.031 + y * 0.017
+    seed: shipwrecks.length * 977 + x * 0.031 + y * 0.017,
+    source: {
+      category: ship.category,
+      name: ship.name,
+      length: ship.length,
+      width: ship.width,
+      stackCount: ship.stackCount,
+      stackRadius: ship.stackRadius,
+      conningTowerSize: ship.conningTowerSize,
+      isSubmerged: ship.isSubmerged,
+      visualStyle: { ...ship.visualStyle }
+    }
   });
 }
 
