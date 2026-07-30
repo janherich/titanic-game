@@ -44,6 +44,7 @@ window.addEventListener('keyup', (e) => {
 let gameRunning = true;
 let gameOver = false;
 let gameWon = false;
+let gameOverReason = 'iceberg';
 let animationTime = 0;
 let totalDistance = 0; // Total distance sailed in world units
 let lastShipX = 0;
@@ -341,6 +342,15 @@ const fuelRigConfig = {
   refuelRate: 0.8
 };
 
+const krakenConfig = {
+  spawnChance: 0.55,
+  maxCount: 2,
+  swimSpeed: 0.7,
+  minSpacing: 1200,
+  islandClearance: goalConfig.radius * 3,
+  dangerDistanceInShipLengths: 1.6
+};
+
 // Goal state
 let goal = {
   x: 0,
@@ -367,6 +377,7 @@ const icebergs = [];
 // cleared by restartGame(). A full reload resets this in-memory history.
 const shipwrecks = [];
 const fuelRigs = [];
+const krakens = [];
 let nearFuelRig = false;
 let isRefueling = false;
 const icebergGridSize = 500; // Generate icebergs in chunks
@@ -1927,6 +1938,109 @@ function drawFuelRigMarker(x, y, radius, expanded) {
   ctx.restore();
 }
 
+function drawKraken(kraken) {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  const screenX = kraken.x - camera.x + screenCenterX;
+  const screenY = kraken.y - camera.y + screenCenterY;
+  const size = 58;
+
+  if (screenX < -size * 2 || screenX > canvas.width + size * 2 ||
+      screenY < -size * 2 || screenY > canvas.height + size * 2) {
+    return;
+  }
+
+  ctx.save();
+  ctx.translate(screenX, screenY);
+  ctx.rotate(kraken.heading);
+
+  const pulse = 0.5 + Math.sin(animationTime * 0.05 + kraken.phase) * 0.18;
+  ctx.fillStyle = 'rgba(15, 9, 29, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(-4, 10, 68, 31, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tentacles are drawn first so the mantle sits naturally above them.
+  for (let i = 0; i < 8; i++) {
+    const baseAngle = (Math.PI * 2 * i) / 8 + Math.sin(kraken.phase + i) * 0.08;
+    const tentacleLength = 44 + hash01(kraken.seed, i, 2) * 28;
+    const startX = Math.cos(baseAngle) * 17;
+    const startY = Math.sin(baseAngle) * 14;
+    const endX = Math.cos(baseAngle) * tentacleLength;
+    const endY = Math.sin(baseAngle) * tentacleLength;
+    const wave = Math.sin(animationTime * 0.08 + kraken.phase + i) * 8;
+    const controlX = Math.cos(baseAngle) * tentacleLength * 0.52 - Math.sin(baseAngle) * wave;
+    const controlY = Math.sin(baseAngle) * tentacleLength * 0.52 + Math.cos(baseAngle) * wave;
+
+    ctx.strokeStyle = 'rgba(19, 12, 35, 0.48)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(startX + 3, startY + 5);
+    ctx.quadraticCurveTo(controlX + 3, controlY + 5, endX + 3, endY + 5);
+    ctx.stroke();
+
+    ctx.strokeStyle = i % 2 === 0 ? '#3d2d5b' : '#4e3868';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(controlX, controlY, endX, endY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#9a6a9f';
+    for (let sucker = 1; sucker < 4; sucker++) {
+      const t = sucker / 4;
+      const suckerX = startX + (endX - startX) * t;
+      const suckerY = startY + (endY - startY) * t;
+      ctx.beginPath();
+      ctx.arc(suckerX - Math.sin(baseAngle) * 3, suckerY + Math.cos(baseAngle) * 3, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Mantle and face.
+  const mantleGradient = ctx.createRadialGradient(22, -8, 4, 8, 0, 42);
+  mantleGradient.addColorStop(0, '#80609a');
+  mantleGradient.addColorStop(0.55, '#4b376b');
+  mantleGradient.addColorStop(1, '#241b3d');
+  ctx.fillStyle = mantleGradient;
+  ctx.strokeStyle = '#1b142c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(8, 0, 33, 23, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = `rgba(180, 111, 196, ${0.25 + pulse * 0.2})`;
+  ctx.beginPath();
+  ctx.ellipse(22, -7, 10, 7, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (const eyeY of [-8, 8]) {
+    ctx.fillStyle = '#f4e7b0';
+    ctx.beginPath();
+    ctx.arc(29, eyeY, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#d84d5a';
+    ctx.beginPath();
+    ctx.arc(31, eyeY, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = '#c68bc2';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(31, 0, 8, -0.8, 0.8);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawKrakens() {
+  for (const kraken of krakens) {
+    drawKraken(kraken);
+  }
+}
+
 // Generate start port on edge of world
 function generateStartPort() {
   const offset = goalConfig.edgeOffset;
@@ -2056,6 +2170,79 @@ function checkFuelRigs(deltaTime) {
       );
     }
     break;
+  }
+}
+
+function generateKrakens() {
+  krakens.length = 0;
+  if (Math.random() > krakenConfig.spawnChance) return;
+
+  const count = Math.random() < 0.22 ? krakenConfig.maxCount : 1;
+  const margin = 900;
+  const maxAttempts = count * 100;
+  let attempts = 0;
+
+  while (krakens.length < count && attempts < maxAttempts) {
+    attempts++;
+    const x = worldConfig.width * 0.18 + Math.random() * worldConfig.width * 0.64;
+    const y = worldConfig.height * 0.18 + Math.random() * worldConfig.height * 0.64;
+
+    if (x < margin || x > worldConfig.width - margin ||
+        y < margin || y > worldConfig.height - margin) {
+      continue;
+    }
+    if (startPort.generated && Math.hypot(x - startPort.x, y - startPort.y) < krakenConfig.islandClearance) {
+      continue;
+    }
+    if (goal.generated && Math.hypot(x - goal.x, y - goal.y) < krakenConfig.islandClearance) {
+      continue;
+    }
+    if (krakens.some(kraken => Math.hypot(x - kraken.x, y - kraken.y) < krakenConfig.minSpacing)) {
+      continue;
+    }
+
+    krakens.push({
+      x,
+      y,
+      heading: Math.random() * Math.PI * 2,
+      phase: Math.random() * Math.PI * 2,
+      seed: krakens.length * 743 + x * 0.023 + y * 0.013
+    });
+  }
+}
+
+function updateKrakens(deltaTime) {
+  for (const kraken of krakens) {
+    kraken.phase += deltaTime * 0.08;
+    kraken.heading += Math.sin(kraken.phase + kraken.seed) * 0.0025 * deltaTime;
+    kraken.x += Math.cos(kraken.heading) * krakenConfig.swimSpeed * deltaTime;
+    kraken.y += Math.sin(kraken.heading) * krakenConfig.swimSpeed * deltaTime;
+
+    const margin = 500;
+    if (kraken.x < margin || kraken.x > worldConfig.width - margin) {
+      kraken.heading = Math.PI - kraken.heading;
+      kraken.x = Math.max(margin, Math.min(worldConfig.width - margin, kraken.x));
+    }
+    if (kraken.y < margin || kraken.y > worldConfig.height - margin) {
+      kraken.heading = -kraken.heading;
+      kraken.y = Math.max(margin, Math.min(worldConfig.height - margin, kraken.y));
+    }
+  }
+}
+
+function checkKrakenEncounters() {
+  if (gameOver || gameWon) return;
+
+  for (const kraken of krakens) {
+    const distance = Math.hypot(camera.x - kraken.x, camera.y - kraken.y);
+    const dangerDistance = ship.length * krakenConfig.dangerDistanceInShipLengths;
+    if (distance < dangerDistance) {
+      recordShipwreck(camera.x, camera.y);
+      gameOverReason = 'kraken';
+      gameOver = true;
+      gameRunning = false;
+      return;
+    }
   }
 }
 
@@ -2784,6 +2971,7 @@ function checkCollisions() {
     const icebergRadius = iceberg.size;
     if (distance < shipRadius + icebergRadius) {
       recordShipwreck(shipWorldX, shipWorldY);
+      gameOverReason = 'iceberg';
       gameOver = true;
       gameRunning = false;
       return;
@@ -2803,6 +2991,7 @@ function checkCollisions() {
     const distance = Math.sqrt(distanceSquared);
     if (distance < shipRadius + shipwreck.size) {
       recordShipwreck(shipWorldX, shipWorldY);
+      gameOverReason = 'iceberg';
       gameOver = true;
       gameRunning = false;
       return;
@@ -2888,7 +3077,11 @@ function drawGameOver() {
   ctx.font = 'bold 48px Arial';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 100);
+  ctx.fillText(
+    gameOverReason === 'kraken' ? 'THE KRAKEN GOT YOU!' : 'GAME OVER',
+    canvas.width / 2,
+    canvas.height / 2 - 100
+  );
   
   // Calculate final stats
   const speedInKnots = Math.abs(ship.speed) * 10;
@@ -2935,6 +3128,7 @@ function restartGame() {
   gameOver = false;
   gameWon = false;
   gameRunning = true;
+  gameOverReason = 'iceberg';
   
   // Clear all pressed keys to prevent stuck keys from affecting restart
   keys.ArrowUp = false;
@@ -2964,6 +3158,7 @@ function restartGame() {
   generateStartPort();
   generateGoal();
   generateFuelRigs();
+  generateKrakens();
   
   // Reset animation and timing
   animationTime = 0;
@@ -3447,6 +3642,7 @@ function gameLoop(currentTime) {
   // Update ship physics (only if game is running and minimap is not expanded)
   if (!gameOver && !gameWon && !minimapExpanded) {
     updateShip(deltaTime);
+    updateKrakens(deltaTime);
     checkFuelRigs(deltaTime);
     
     // Ensure icebergs are generated for visible area
@@ -3454,6 +3650,7 @@ function gameLoop(currentTime) {
     
     // Check for collisions
     checkCollisions();
+    checkKrakenEncounters();
     
     // Check if goal reached
     checkGoalReached();
@@ -3476,6 +3673,9 @@ function gameLoop(currentTime) {
 
   // Draw offshore refueling platforms.
   drawFuelRigs();
+
+  // Draw any krakens currently swimming through the visible water.
+  drawKrakens();
 
   // Draw start port
   drawStartPort();
@@ -3509,6 +3709,7 @@ applyShipType(currentShipType);
 generateStartPort();
 generateGoal();
 generateFuelRigs();
+generateKrakens();
 gameStartTime = performance.now();
 
 // Start game loop
