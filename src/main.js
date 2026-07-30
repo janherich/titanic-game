@@ -346,7 +346,7 @@ const krakenConfig = {
   minCount: 2,
   maxCount: 3,
   swimSpeed: 0.7,
-  chaseSpeed: 4.7,
+  chaseSpeed: 2.8,
   chaseTurnRate: 0.055,
   engageDistanceInShipLengths: 3.75,
   disengageDistanceInShipLengths: 5.5,
@@ -2261,14 +2261,19 @@ function updateKrakens(deltaTime) {
     kraken.x += Math.cos(kraken.heading) * speed * deltaTime;
     kraken.y += Math.sin(kraken.heading) * speed * deltaTime;
 
-    const margin = 500;
-    if (kraken.x < margin || kraken.x > worldConfig.width - margin) {
-      kraken.heading = Math.PI - kraken.heading;
-      kraken.x = Math.max(margin, Math.min(worldConfig.width - margin, kraken.x));
-    }
-    if (kraken.y < margin || kraken.y > worldConfig.height - margin) {
-      kraken.heading = -kraken.heading;
-      kraken.y = Math.max(margin, Math.min(worldConfig.height - margin, kraken.y));
+    // Wandering krakens stay in open water, but an engaged kraken must be
+    // allowed to follow a ship near an edge instead of being pinned at a
+    // corner by the patrol boundary.
+    if (!kraken.isChasing) {
+      const margin = 500;
+      if (kraken.x < margin || kraken.x > worldConfig.width - margin) {
+        kraken.heading = Math.PI - kraken.heading;
+        kraken.x = Math.max(margin, Math.min(worldConfig.width - margin, kraken.x));
+      }
+      if (kraken.y < margin || kraken.y > worldConfig.height - margin) {
+        kraken.heading = -kraken.heading;
+        kraken.y = Math.max(margin, Math.min(worldConfig.height - margin, kraken.y));
+      }
     }
   }
 }
