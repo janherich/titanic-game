@@ -320,6 +320,9 @@ const camera = {
 
 // Icebergs storage (generated on demand)
 const icebergs = [];
+// Shipwrecks persist for the lifetime of the page and are intentionally not
+// cleared by restartGame(). A full reload resets this in-memory history.
+const shipwrecks = [];
 const icebergGridSize = 500; // Generate icebergs in chunks
 const loadedIcebergChunks = new Set(); // Track which chunks have been generated
 
@@ -1467,6 +1470,117 @@ function drawIcebergs() {
   }
 }
 
+function drawShipwreck(shipwreck) {
+  const screenCenterX = canvas.width / 2;
+  const screenCenterY = canvas.height / 2;
+  const screenX = shipwreck.x - camera.x + screenCenterX;
+  const screenY = shipwreck.y - camera.y + screenCenterY;
+  const wreckLength = shipwreck.size * 2.15;
+  const wreckWidth = shipwreck.size * 0.62;
+
+  if (screenX < -wreckLength || screenX > canvas.width + wreckLength ||
+      screenY < -wreckLength || screenY > canvas.height + wreckLength) {
+    return;
+  }
+
+  ctx.save();
+  ctx.translate(screenX, screenY);
+  ctx.rotate(shipwreck.rotation);
+
+  // A low, broken hull and a faint wake make the wreck legible against the
+  // water while still feeling like a settled obstacle rather than a new ship.
+  ctx.fillStyle = 'rgba(5, 28, 38, 0.25)';
+  ctx.beginPath();
+  ctx.ellipse(5, 7, wreckLength * 0.52, wreckWidth * 0.68, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(174, 221, 223, 0.32)';
+  ctx.lineWidth = 1.5;
+  for (let ripple = 0; ripple < 2; ripple++) {
+    ctx.beginPath();
+    ctx.ellipse(
+      -wreckLength * 0.08,
+      3,
+      wreckLength * (0.62 + ripple * 0.08),
+      wreckWidth * (0.72 + ripple * 0.08),
+      0,
+      0,
+      Math.PI * 2
+    );
+    ctx.stroke();
+  }
+
+  traceSurfaceHull(wreckLength, wreckWidth, 'classic');
+  ctx.fillStyle = '#27343a';
+  ctx.fill();
+  ctx.strokeStyle = '#c2784b';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // The split deck and exposed red-brown plating communicate that this is a
+  // wreck, not a selectable vessel.
+  ctx.save();
+  ctx.translate(-wreckLength * 0.05, 0);
+  traceSurfaceHull(wreckLength * 0.84, wreckWidth * 0.68, 'classic');
+  ctx.fillStyle = '#76533e';
+  ctx.fill();
+  ctx.strokeStyle = '#c89567';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#3a2522';
+  ctx.fillRect(-wreckLength * 0.1, -wreckWidth * 0.24, wreckLength * 0.27, wreckWidth * 0.16);
+  ctx.fillStyle = '#b76b45';
+  ctx.fillRect(wreckLength * 0.18, -wreckWidth * 0.2, wreckLength * 0.16, wreckWidth * 0.13);
+
+  ctx.strokeStyle = '#1e2b30';
+  ctx.lineWidth = Math.max(2, shipwreck.size * 0.035);
+  ctx.beginPath();
+  ctx.moveTo(-wreckLength * 0.06, 0);
+  ctx.lineTo(wreckLength * 0.2, -wreckWidth * 0.72);
+  ctx.moveTo(wreckLength * 0.08, wreckWidth * 0.04);
+  ctx.lineTo(-wreckLength * 0.23, wreckWidth * 0.64);
+  ctx.stroke();
+
+  ctx.fillStyle = '#d3874b';
+  for (let debris = 0; debris < 4; debris++) {
+    const debrisX = (hash01(shipwreck.seed, debris, 21) - 0.5) * wreckLength * 1.3;
+    const debrisY = (hash01(shipwreck.seed, debris, 22) - 0.5) * wreckWidth * 2.2;
+    ctx.beginPath();
+    ctx.arc(debrisX, debrisY, 2 + hash01(shipwreck.seed, debris, 23) * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawShipwrecks() {
+  for (const shipwreck of shipwrecks) {
+    drawShipwreck(shipwreck);
+  }
+}
+
+function drawShipwreckMarker(x, y, radius, expanded) {
+  const markerRadius = Math.max(expanded ? 5 : 3, radius);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(16, 25, 31, 0.75)';
+  ctx.beginPath();
+  ctx.arc(x, y, markerRadius + 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#e08b4d';
+  ctx.lineWidth = expanded ? 2 : 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x - markerRadius, y - markerRadius);
+  ctx.lineTo(x + markerRadius, y + markerRadius);
+  ctx.moveTo(x + markerRadius, y - markerRadius);
+  ctx.lineTo(x - markerRadius, y + markerRadius);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Generate start port on edge of world
 function generateStartPort() {
   const offset = goalConfig.edgeOffset;
@@ -2214,7 +2328,18 @@ function drawGoal() {
   drawIsland(goalScreenX, goalScreenY, '#4caf50', goal.x, goal.y, 1.0, false, 'ARRIVAL');
 }
 
-// Check collision between ship and icebergs
+function recordShipwreck(x, y) {
+  const wreckSize = Math.max(42, Math.min(78, ship.width * 0.9));
+  shipwrecks.push({
+    x,
+    y,
+    size: wreckSize,
+    rotation: ship.rotation,
+    seed: shipwrecks.length * 977 + x * 0.031 + y * 0.017
+  });
+}
+
+// Check collision between ship, icebergs, and remembered shipwrecks.
 function checkCollisions() {
   if (gameOver || gameWon) return;
   
@@ -2251,6 +2376,26 @@ function checkCollisions() {
     // Collision if distance is less than sum of radii
     const icebergRadius = iceberg.size;
     if (distance < shipRadius + icebergRadius) {
+      recordShipwreck(shipWorldX, shipWorldY);
+      gameOver = true;
+      gameRunning = false;
+      return;
+    }
+  }
+
+  for (const shipwreck of shipwrecks) {
+    const dx = shipWorldX - shipwreck.x;
+    const dy = shipWorldY - shipwreck.y;
+    const distanceSquared = dx * dx + dy * dy;
+    const maxWreckCheckDistance = ship.length + shipwreck.size + 50;
+
+    if (distanceSquared > maxWreckCheckDistance * maxWreckCheckDistance) {
+      continue;
+    }
+
+    const distance = Math.sqrt(distanceSquared);
+    if (distance < shipRadius + shipwreck.size) {
+      recordShipwreck(shipWorldX, shipWorldY);
       gameOver = true;
       gameRunning = false;
       return;
@@ -2691,6 +2836,18 @@ function drawMinimap() {
     ctx.arc(goalMapX, goalMapY, indicatorRadius, 0, Math.PI * 2);
     ctx.stroke();
   }
+
+  // Wrecks remain visible in the route history after restarting the game.
+  for (const shipwreck of shipwrecks) {
+    const wreckMapX = mapOffsetX + shipwreck.x * scale;
+    const wreckMapY = mapOffsetY + shipwreck.y * scale;
+    drawShipwreckMarker(
+      wreckMapX,
+      wreckMapY,
+      shipwreck.size * scale * (minimapExpanded ? 0.32 : 0.22),
+      minimapExpanded
+    );
+  }
   
   // Draw ship position as miniature ship outline
   const shipMapX = mapOffsetX + camera.x * scale;
@@ -2872,6 +3029,9 @@ function gameLoop(currentTime) {
 
   // Draw icebergs
   drawIcebergs();
+
+  // Draw remembered wrecks as persistent world obstacles.
+  drawShipwrecks();
 
   // Draw start port
   drawStartPort();
